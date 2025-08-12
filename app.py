@@ -1239,7 +1239,6 @@ class MultilingualApp:
         self.style_manager = None
         self.correction_manager = None
         self.flashcard_manager = None
-        self.speech_manager = None
         self.client = None
     
     def render_sidebar(self):
@@ -1798,7 +1797,6 @@ class MultilingualApp:
         self.style_manager = StyleManager(self.openai_handler)
         self.correction_manager = CorrectionManager(self.openai_handler)
         self.flashcard_manager = FlashcardManager(self.openai_handler)
-        self.speech_manager = SpeechRecognitionManager()
         
         # Renderuj sidebar
         lang, bg_color = self.render_sidebar()
@@ -1820,8 +1818,6 @@ class MultilingualApp:
         st.markdown("---")
         
         self.render_flashcard_section(lang)
-        
-        # Sekcja ćwiczenia wymowy została usunięta dla kompatybilności ze Streamlit Cloud
         
         # Stopka
         self.render_footer()
