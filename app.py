@@ -323,7 +323,7 @@ class Labels:
                 "日本語": "🔍 単語と文法を説明する"
             },
             "Ładna wersja wypowiedzi – poprawa stylistyki": {
-                "Polski": "✨ Ładna wersja wypowiedzi – poprawa stylistyki",
+                "Polski": "✨ Ładna wersja wypowiedzi (bez tłumaczenia)",
                 "English": "✨ Polished version – stylistic improvement",
                 "Deutsch": "✨ Schöne Version – stilistische Verbesserung",
                 "Українська": "✨ Гарна версія – покращення стилю",
@@ -1459,6 +1459,7 @@ class MultilingualApp:
         col1, col2 = st.columns([1, 1])
         with col1:
             correct_errors = st.checkbox("🔧 Popraw błędy przed tłumaczeniem", value=False, help="Popraw błędy gramatyczne i stylistyczne w oryginalnym języku przed tłumaczeniem")
+            st.session_state.correct_errors_enabled = correct_errors
         with col2:
             st.markdown("")  # Pusty element dla wyrównania
         
@@ -1589,8 +1590,11 @@ class MultilingualApp:
                 st.warning("Wpisz tekst do wyjaśnienia.")
     
     def render_style_section(self, lang: str):
+        # Jeśli włączona jest opcja poprawy błędów przed tłumaczeniem, pokazujemy sekcję stylistyki tylko gdy użytkownik faktycznie jej potrzebuje
+        # (nie ukrywamy twardo, ale zostawiamy jasny podtytuł)
         """Renderowanie sekcji stylistyki"""
         st.header(self.labels["Ładna wersja wypowiedzi – poprawa stylistyki"][lang])
+        st.caption("Nie tłumaczy — tylko poprawa stylu i gramatyki w tym samym języku.")
         
         style_text = st.text_area(
             self.labels["Wpisz tekst do poprawy stylistycznej:"][lang],
