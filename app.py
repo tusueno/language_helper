@@ -59,6 +59,9 @@ def init_session_state():
         st.session_state.cost_history = []
     if 'recorded_translation_text' not in st.session_state:
         st.session_state.recorded_translation_text = ""
+    # Wersjonowanie pola tekstowego, aby umożliwić czyszczenie bez modyfikacji st.session_state po renderze
+    if 'translation_text_version' not in st.session_state:
+        st.session_state.translation_text_version = 0
     # Pronunciation practice state
     if 'practice_text' not in st.session_state:
         st.session_state.practice_text = ""
@@ -1563,19 +1566,20 @@ class MultilingualApp:
         if 'recorded_translation_text' in st.session_state and st.session_state.recorded_translation_text:
             initial_text = st.session_state.recorded_translation_text
         
+        text_key = f"translation_text_v{st.session_state.translation_text_version}"
         text = st.text_area(
             self.labels["Wprowadź tekst tutaj:"][lang],
             value=initial_text,
             height=150,
             placeholder="Wpisz tutaj tekst do przetłumaczenia...",
-            key="translation_text"
+            key=text_key
         )
-        # Wyczyść tekst – przycisk pod polem
+        # Wyczyść tekst – przycisk pod polem (bez bezpośredniej modyfikacji klucza istniejącego widgetu)
         clear_col, _ = st.columns([1, 3])
         with clear_col:
             if st.button("🗑️ Wyczyść tekst", key="translation_clear_btn", use_container_width=True):
                 st.session_state.recorded_translation_text = ""
-                st.session_state.translation_text = ""
+                st.session_state.translation_text_version += 1
                 st.rerun()
         
         # Sekcja rozpoznawania mowy (cloud-friendly)
