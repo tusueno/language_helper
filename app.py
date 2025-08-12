@@ -1,6 +1,5 @@
 import streamlit as st
 from openai import OpenAI
-from dotenv import load_dotenv
 import os
 import re
 import json
@@ -14,15 +13,33 @@ import tiktoken
 import tempfile
 import wave
 
-# Import naszych modułów
-from utils import CacheManager
+# Cache manager - prosty cache w pamięci
+class SimpleCacheManager:
+    """Prosty cache manager w pamięci"""
+    def __init__(self, default_ttl=3600):
+        self.cache = {}
+        self.default_ttl = default_ttl
+    
+    def get(self, key):
+        if key in self.cache:
+            timestamp, value = self.cache[key]
+            if time.time() - timestamp < self.default_ttl:
+                return value
+            else:
+                del self.cache[key]
+        return None
+    
+    def set(self, key, value):
+        self.cache[key] = (time.time(), value)
+    
+    def clear(self):
+        self.cache.clear()
 
 # Konfiguracja logowania
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Załaduj zmienne środowiskowe
-load_dotenv()
+# Zmienne środowiskowe nie są już potrzebne - API key jest wprowadzany przez UI
 
 
 
@@ -94,8 +111,8 @@ def get_openai_client(api_key: str):
         st.error(f"❌ Błąd inicjalizacji OpenAI: {e}")
         return None
 
-# Cache dla wyników API - używamy CacheManager z utils.py
-_cache_manager = CacheManager(default_ttl=3600)  # 1 godzina
+# Cache dla wyników API - używamy SimpleCacheManager
+_cache_manager = SimpleCacheManager(default_ttl=3600)  # 1 godzina
 
 def get_cached_response(cache_key: str):
     """Pobierz wynik z cache"""

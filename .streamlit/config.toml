@@ -6,6 +6,7 @@ developmentMode = false
 # Ustawienia serwera
 headless = true
 port = 8501
+maxUploadSize = 200
 enableCORS = false
 enableXsrfProtection = false
 
@@ -17,9 +18,9 @@ serverPort = 8501
 
 [theme]
 # Motyw aplikacji
-primaryColor = "#1f77b4"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f0f2f6"
+primaryColor = "#FF6B6B"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
 textColor = "#262730"
 font = "sans serif"
 
