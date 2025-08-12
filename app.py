@@ -1384,6 +1384,70 @@ class MultilingualApp:
         st.sidebar.markdown(f"📊 Liczba requestów: {st.session_state.request_count}")
         
         return lang, bg_color
+
+    def generate_practice_words(self, language: str, practice_type: str):
+        """Generowanie słów do ćwiczenia wymowy (Cloud)"""
+        try:
+            prompts = {
+                "Słowa podstawowe": f"Wygeneruj 5 podstawowych słów w języku {language} z transkrypcją fonetyczną. Format: Słowo - Transkrypcja - Znaczenie po polsku",
+                "Zwroty codzienne": f"Wygeneruj 5 codziennych zwrotów w języku {language} z transkrypcją fonetyczną. Format: Zwrot - Transkrypcja - Znaczenie po polsku",
+                "Liczby": f"Wygeneruj liczby od 1 do 10 w języku {language} z transkrypcją fonetyczną. Format: Liczba - Transkrypcja - Znaczenie po polsku",
+                "Kolory": f"Wygeneruj 8 podstawowych kolorów w języku {language} z transkrypcją fonetyczną. Format: Kolor - Transkrypcja - Znaczenie po polsku",
+                "Członkowie rodziny": f"Wygeneruj 8 członków rodziny w języku {language} z transkrypcją fonetyczną. Format: Członek rodziny - Transkrypcja - Znaczenie po polsku",
+            }
+            prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
+            messages = [
+                {"role": "system", "content": f"Jesteś nauczycielem języka {language}. Generujesz słowa do ćwiczenia wymowy."},
+                {"role": "user", "content": prompt},
+            ]
+            result = self.openai_handler.make_request(messages)
+            if result:
+                st.success("✅ Wygenerowano słowa do ćwiczenia!")
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;">
+                    <h4 style="margin: 0 0 15px 0; color: #6f42c1;">📚 {practice_type} w języku {language}:</h4>
+                    <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.error("❌ Nie udało się wygenerować słów do ćwiczenia.")
+        except Exception as e:
+            st.error(f"❌ Błąd generowania słów: {e}")
+
+    def analyze_pronunciation(self, language: str, recorded_text: str):
+        """Analiza wymowy (Cloud)"""
+        try:
+            prompt = f"""
+            Przeanalizuj wymowę użytkownika w języku {language}.
+            Nagrany tekst: "{recorded_text}"
+            Oceń:
+            1. Poprawność wymowy (1-10)
+            2. Główne błędy
+            3. Wskazówki do poprawy
+            4. Ćwiczenia do praktyki
+            Odpowiedz w formacie:
+            **Ocena:** X/10
+            **Błędy:** [lista]
+            **Wskazówki:** [lista]
+            **Ćwiczenia:** [lista]
+            """
+            messages = [
+                {"role": "system", "content": f"Jesteś ekspertem od wymowy języka {language}."},
+                {"role": "user", "content": prompt},
+            ]
+            result = self.openai_handler.make_request(messages)
+            if result:
+                st.success("✅ Analiza wymowy gotowa!")
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #17a2b8;">
+                    <h4 style="margin: 0 0 15px 0; color: #17a2b8;">📊 Analiza wymowy:</h4>
+                    <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.error("❌ Nie udało się przeanalizować wymowy.")
+        except Exception as e:
+            st.error(f"❌ Błąd analizy wymowy: {e}")
     
     def _extract_section(self, text: str, section_start: str) -> str:
         """Wyciąga określoną sekcję z tekstu wynikowego"""
