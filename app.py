@@ -958,8 +958,8 @@ class FlashcardManager:
     def __init__(self, openai_handler: OpenAIHandler):
         self.openai_handler = openai_handler
     
-    def generate_flashcards(self, text: str) -> Optional[Dict]:
-        """Generowanie fiszek z tekstu i zwracanie struktury danych"""
+    def generate_flashcards(self, text: str, definition_language: str) -> Optional[Dict]:
+        """Generowanie fiszek z tekstu z definicjami w wybranym języku i zwracanie struktury danych"""
         # Sprawdź cache
         cache_key = generate_cache_key(text, "flashcards")
         cached_result = get_cached_response(cache_key)
@@ -975,20 +975,20 @@ class FlashcardManager:
         
         # Przygotuj prompt
         prompt = (
-            "Wypisz listę najważniejszych i najciekawszych słówek z poniższego tekstu. "
-            "Do każdego słowa podaj krótką definicję po polsku oraz przykład użycia w zdaniu. "
-            "WAŻNE: Odpowiedz TYLKO w formacie JSON, bez żadnych dodatkowych komentarzy, markdown lub tekstu przed lub po JSON.\n"
+            "Extract the most important and interesting vocabulary items from the text below. "
+            f"For each item provide a short definition in {definition_language} and an example sentence. "
+            "IMPORTANT: Respond ONLY in strict JSON, without any commentary or markdown.\n"
             "Format:\n"
             "{\n"
             '  "flashcards": [\n'
             '    {\n'
-            '      "word": "słówko",\n'
-            '      "definition": "definicja po polsku",\n'
-            '      "example": "przykład użycia w zdaniu"\n'
+            '      "word": "term",\n'
+            '      "definition": "short definition in the selected language",\n'
+            '      "example": "usage example"\n'
             '    }\n'
             '  ]\n'
             "}\n\n"
-            f"Tekst: {text}"
+            f"Text: {text}"
         )
         
         # Wykonaj request
@@ -1084,25 +1084,25 @@ class FlashcardManager:
             img = Image.new('RGB', (total_width, total_height), color='white')
             draw = ImageDraw.Draw(img)
             
-            # Próba załadowania czcionki z obsługą polskich znaków
-            try:
-                # Próbujemy różne czcionki
-                font_large = ImageFont.truetype("arial.ttf", font_large_size)  # Windows Arial
-            except:
-                try:
-                    font_large = ImageFont.truetype("DejaVuSans.ttf", font_large_size)  # Linux
-                except:
-                    font_large = ImageFont.load_default()  # Domyślna czcionka
-            
-            try:
-                font_medium = ImageFont.truetype("arial.ttf", font_medium_size)
-            except:
-                font_medium = ImageFont.load_default()
-            
-            try:
-                font_small = ImageFont.truetype("arial.ttf", font_small_size)
-            except:
-                font_small = ImageFont.load_default()
+            # Próba załadowania czcionki z obsługą polskich znaków (szukamy w typowych ścieżkach systemowych)
+            def _load_font_with_fallback(size: int):
+                candidate_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Debian/Ubuntu (Streamlit Cloud)
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+                    "DejaVuSans.ttf",  # bieżący katalog
+                    "arial.ttf",       # Windows
+                ]
+                for path in candidate_paths:
+                    try:
+                        return ImageFont.truetype(path, size)
+                    except Exception:
+                        continue
+                return ImageFont.load_default()
+
+            font_large = _load_font_with_fallback(font_large_size)
+            font_medium = _load_font_with_fallback(font_medium_size)
+            font_small = _load_font_with_fallback(font_small_size)
             
             # Tytuł
             title = "📚 FISZKI DO NAUKI"
@@ -1809,6 +1809,42 @@ class MultilingualApp:
             key="flashcard_text"
         )
         
+        # Wybór języka definicji (interfejs / lista)
+        st.caption("Wybierz język definicji fiszek")
+        definition_lang_choice = st.selectbox(
+            "Język definicji",
+            [
+                "Język interfejsu",
+                "Polish",
+                "English",
+                "German",
+                "French",
+                "Spanish",
+                "Italian",
+                "Arabic",
+                "Chinese",
+                "Japanese",
+            ],
+            index=0,
+            key="flashcards_definition_lang"
+        )
+        # Mapowanie języka interfejsu -> język definicji (angielskie nazwy dla spójności promptów)
+        interface_to_lang = {
+            "Polski": "Polish",
+            "English": "English",
+            "Deutsch": "German",
+            "Українсьka": "Ukrainian",
+            "Français": "French",
+            "Español": "Spanish",
+            "العربية": "Arabic",
+            "Arabski (libański dialekt)": "Arabic (Lebanese dialect)",
+            "中文": "Chinese",
+            "日本語": "Japanese",
+        }
+        effective_definition_lang = (
+            interface_to_lang.get(lang, "Polish") if definition_lang_choice == "Język interfejsu" else definition_lang_choice
+        )
+
         if st.button(
             self.labels["Wygeneruj fiszki"][lang],
             type="secondary",
@@ -1816,7 +1852,7 @@ class MultilingualApp:
         ):
             if flashcard_text:
                 st.session_state.request_count += 1
-                flashcards_data = self.flashcard_manager.generate_flashcards(flashcard_text)
+                flashcards_data = self.flashcard_manager.generate_flashcards(flashcard_text, effective_definition_lang)
                 
                 if flashcards_data and "flashcards" in flashcards_data:
                     st.markdown("---")
