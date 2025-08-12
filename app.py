@@ -9,7 +9,7 @@ import hashlib
 from typing import Dict, List, Optional, Tuple
 import logging
 import tiktoken
-# import speech_recognition as sr  # Usunięte dla kompatybilności ze Streamlit Cloud
+from streamlit_audio_recorder import audio_recorder
 import tempfile
 import wave
 
@@ -58,7 +58,8 @@ def init_session_state():
         st.session_state.token_history = []
     if 'cost_history' not in st.session_state:
         st.session_state.cost_history = []
-    # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
+    if 'recorded_translation_text' not in st.session_state:
+        st.session_state.recorded_translation_text = ""
     # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
 
 
@@ -449,7 +450,54 @@ class Labels:
             },
             # Etykiety dla funkcji audio
             # Etykieta audio została usunięta dla kompatybilności ze Streamlit Cloud
-            # Etykiety audio zostały usunięte dla kompatybilności ze Streamlit Cloud
+            "Lub nagraj swoją wypowiedź": {
+                "Polski": "🎤 Lub nagraj swoją wypowiedź",
+                "English": "🎤 Or record your speech",
+                "Deutsch": "🎤 Oder nehmen Sie Ihre Rede auf",
+                "Українська": "🎤 Або запишіть свою промову",
+                "Français": "🎤 Ou enregistrez votre discours",
+                "Español": "🎤 O graba tu discurso",
+                "العربية": "🎤 أو سجل كلامك",
+                "Arabski (libański dialekt)": "🎤 أو سجل كلامك (لبناني)",
+                "中文": "🎤 或录制您的演讲",
+                "日本語": "🎤 またはスピーチを録音する"
+            },
+            "Nagraj z mikrofonu": {
+                "Polski": "🎤 Nagraj z mikrofonu",
+                "English": "🎤 Record from microphone",
+                "Deutsch": "🎤 Vom Mikrofon aufnehmen",
+                "Українсьka": "🎤 Записати з мікрофона",
+                "Français": "🎤 Enregistrer depuis le microphone",
+                "Español": "🎤 Grabar desde el micrófono",
+                "العربية": "🎤 سجل من الميكروفون",
+                "Arabski (libański dialekt)": "🎤 سجل من الميكروفون (لبناني)",
+                "中文": "🎤 从麦克风录制",
+                "日本語": "🎤 マイクから録音する"
+            },
+            "Wczytaj plik audio": {
+                "Polski": "📁 Wczytaj plik audio",
+                "English": "📁 Load audio file",
+                "Deutsch": "📁 Audiodatei laden",
+                "Українська": "📁 Завантажити аудіофайл",
+                "Français": "📁 Charger un fichier audio",
+                "Español": "📁 Cargar archivo de audio",
+                "العربية": "📁 تحميل ملف صوتي",
+                "Arabski (libański dialekt)": "📁 تحميل ملف صوتي (لبناني)",
+                "中文": "📁 加载音频文件",
+                "日本語": "📁 音声ファイルを読み込む"
+            },
+            "Wyczyść tekst": {
+                "Polski": "🗑️ Wyczyść tekst",
+                "English": "🗑️ Clear text",
+                "Deutsch": "🗑️ Text löschen",
+                "Українська": "🗑️ Очистити текст",
+                "Français": "🗑️ Effacer le texte",
+                "Español": "🗑️ Limpiar texto",
+                "العربية": "🗑️ مسح النص",
+                "Arabski (libański dialekt)": "🗑️ مسح النص (لبناني)",
+                "中文": "🗑️ 清除文本",
+                "日本語": "🗑️ テキストをクリアする"
+            },
             # Etykiety dla wyboru języka
             "Wybierz język docelowy": {
                 "Polski": "🎯 Wybierz język docelowy",
@@ -1274,15 +1322,65 @@ class MultilingualApp:
         </div>
         """, unsafe_allow_html=True)
         
+        # Sprawdź czy jest nagrany tekst
+        initial_text = ""
+        if 'recorded_translation_text' in st.session_state and st.session_state.recorded_translation_text:
+            initial_text = st.session_state.recorded_translation_text
+        
         text = st.text_area(
             self.labels["Wprowadź tekst tutaj:"][lang],
-            value="",
+            value=initial_text,
             height=150,
             placeholder="Wpisz tutaj tekst do przetłumaczenia...",
             key="translation_text"
         )
         
-        # Sekcja audio została usunięta dla kompatybilności ze Streamlit Cloud
+        # Sekcja rozpoznawania mowy
+        st.markdown("---")
+        # Custom podnagłówek z odpowiednim CSS
+        st.markdown(f"""
+        <div style="margin: 0; width: 100%; box-sizing: border-box;">
+            <h2 style="margin: 0 0 20px 0; color: #495057; font-size: 24px; font-weight: 600; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">{self.labels["Lub nagraj swoją wypowiedź"][lang]}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            # Użyj streamlit-audio-recorder zamiast problematycznej SpeechRecognition
+            audio_bytes = audio_recorder(
+                text=self.labels["Nagraj z mikrofonu"][lang],
+                recording_color="#e74c3c",
+                neutral_color="#6c757d",
+                icon_name="microphone",
+                icon_size="2x",
+                key="translation_mic"
+            )
+            
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/wav")
+                # Tutaj możesz dodać konwersję audio na tekst (jeśli chcesz)
+                # Na razie pokazujemy tylko nagranie
+                st.success("✅ Nagrano audio! Możesz go odsłuchać powyżej.")
+        
+        with col2:
+            # Upload pliku audio
+            audio_file = st.file_uploader(
+                self.labels["Wczytaj plik audio"][lang],
+                type=['wav', 'mp3'],
+                key="translation_audio_upload"
+            )
+            
+            if audio_file:
+                st.audio(audio_file, format="audio/wav")
+                st.success("✅ Wczytano plik audio! Możesz go odsłuchać powyżej.")
+            
+            # Przycisk wyczyść tekst
+            if st.button(self.labels["Wyczyść tekst"][lang], type="secondary", use_container_width=True, key="translation_clear"):
+                st.session_state.recorded_translation_text = ""
+                st.rerun()
+        
+        st.markdown("---")
         
         # Opcje tłumaczenia
         col1, col2 = st.columns([1, 1])
