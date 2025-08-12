@@ -10,7 +10,7 @@ import hashlib
 from typing import Dict, List, Optional, Tuple
 import logging
 import tiktoken
-import speech_recognition as sr
+# import speech_recognition as sr  # Usunięte dla kompatybilności ze Streamlit Cloud
 import tempfile
 import wave
 
@@ -41,10 +41,8 @@ def init_session_state():
         st.session_state.token_history = []
     if 'cost_history' not in st.session_state:
         st.session_state.cost_history = []
-    if 'pronunciation_practice_active' not in st.session_state:
-        st.session_state.pronunciation_practice_active = False
-    if 'practice_language' not in st.session_state:
-        st.session_state.practice_language = "English"
+    # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
+    # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
 
 
 
@@ -433,78 +431,8 @@ class Labels:
                 "日本語": "💾 .txt ファイルとしてカードをダウンロード"
             },
             # Etykiety dla funkcji audio
-            "Lub nagraj swoją wypowiedź": {
-                "Polski": "🎤 Lub nagraj swoją wypowiedź",
-                "English": "🎤 Or record your speech",
-                "Deutsch": "🎤 Oder nehmen Sie Ihre Rede auf",
-                "Українська": "🎤 Або запишіть свою промову",
-                "Français": "🎤 Ou enregistrez votre discours",
-                "Español": "🎤 O graba tu discurso",
-                "العربية": "🎤 أو سجل كلامك",
-                "Arabski (libański dialekt)": "🎤 أو سجل كلامك (لبناني)",
-                "中文": "🎤 或录制您的演讲",
-                "日本語": "🎤 またはスピーチを録音する"
-            },
-            "Nagraj z mikrofonu": {
-                "Polski": "🎤 Nagraj z mikrofonu",
-                "English": "🎤 Record from microphone",
-                "Deutsch": "🎤 Vom Mikrofon aufnehmen",
-                "Українсьka": "🎤 Записати з мікрофона",
-                "Français": "🎤 Enregistrer depuis le microphone",
-                "Español": "🎤 Grabar desde el micrófono",
-                "العربية": "🎤 سجل من الميكروفون",
-                "Arabski (libański dialekt)": "🎤 سجل من الميكروفون (لبناني)",
-                "中文": "🎤 从麦克风录制",
-                "日本語": "🎤 マイクから録音する"
-            },
-            "Wczytaj plik audio": {
-                "Polski": "📁 Wczytaj plik audio",
-                "English": "📁 Load audio file",
-                "Deutsch": "📁 Audiodatei laden",
-                "Українська": "📁 Завантажити аудіофайл",
-                "Français": "📁 Charger un fichier audio",
-                "Español": "📁 Cargar archivo de audio",
-                "العربية": "📁 تحميل ملف صوتي",
-                "Arabski (libański dialekt)": "📁 تحميل ملف صوتي (لبناني)",
-                "中文": "📁 加载音频文件",
-                "日本語": "📁 音声ファイルを読み込む"
-            },
-            "Wyczyść tekst": {
-                "Polski": "🗑️ Wyczyść tekst",
-                "English": "🗑️ Clear text",
-                "Deutsch": "🗑️ Text löschen",
-                "Українська": "🗑️ Очистити текст",
-                "Français": "🗑️ Effacer le texte",
-                "Español": "🗑️ Limpiar texto",
-                "العربية": "🗑️ مسح النص",
-                "Arabski (libański dialekt)": "🗑️ مسح النص (لبناني)",
-                "中文": "🗑️ 清除文本",
-                "日本語": "🗑️ テキストをクリアする"
-            },
-            "Wybierz plik audio (WAV, MP3)": {
-                "Polski": "Wybierz plik audio (WAV, MP3)",
-                "English": "Select audio file (WAV, MP3)",
-                "Deutsch": "Audiodatei auswählen (WAV, MP3)",
-                "Українська": "Виберіть аудіофайл (WAV, MP3)",
-                "Français": "Sélectionner un fichier audio (WAV, MP3)",
-                "Español": "Seleccionar archivo de audio (WAV, MP3)",
-                "العربية": "اختر ملف صوتي (WAV, MP3)",
-                "Arabski (libański dialekt)": "اختر ملف صوتي (WAV, MP3) (لبناني)",
-                "中文": "选择音频文件 (WAV, MP3)",
-                "日本語": "音声ファイルを選択 (WAV, MP3)"
-            },
-            "Odtwórz ponownie": {
-                "Polski": "🔊 Odtwórz ponownie",
-                "English": "🔊 Play again",
-                "Deutsch": "🔊 Erneut abspielen",
-                "Українська": "🔊 Відтворити знову",
-                "Français": "🔊 Rejouer",
-                "Español": "🔊 Reproducir de nuevo",
-                "العربية": "🔊 تشغيل مرة أخرى",
-                "Arabski (libański dialekt)": "🔊 تشغيل مرة أخرى (لبناني)",
-                "中文": "🔊 重新播放",
-                "日本語": "🎤 再再生する"
-            },
+            # Etykieta audio została usunięta dla kompatybilności ze Streamlit Cloud
+            # Etykiety audio zostały usunięte dla kompatybilności ze Streamlit Cloud
             # Etykiety dla wyboru języka
             "Wybierz język docelowy": {
                 "Polski": "🎯 Wybierz język docelowy",
@@ -1158,65 +1086,7 @@ class FlashcardManager:
             st.error(f"❌ Błąd generowania obrazów: {str(e)}")
             return None
 
-# Klasa do rozpoznawania mowy z prostym przyciskiem STOP
-class SpeechRecognitionManager:
-    """Zarządzanie rozpoznawaniem mowy z prostym przyciskiem STOP"""
-    
-    def __init__(self):
-        self.recognizer = sr.Recognizer()
-        self.microphone = None
-        
-    def get_audio_from_microphone(self) -> Optional[str]:
-        """Nagrywanie audio z mikrofonu i konwersja na tekst"""
-        try:
-            # Użyj domyślnego mikrofonu
-            with sr.Microphone() as source:
-                # Dostosuj do hałasu otoczenia
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
-                
-                # Ustaw parametry dla lepszego nagrywania
-                self.recognizer.energy_threshold = 200  # Bardzo niski próg energii (bardziej wrażliwy)
-                self.recognizer.dynamic_energy_threshold = False  # Wyłącz dynamiczny próg
-                self.recognizer.pause_threshold = 2.0  # Bardzo krótka pauza (2 sekundy)
-                self.recognizer.non_speaking_duration = 2.0  # Czas ciszy przed zatrzymaniem
-                
-                # Nagrywaj audio z krótszym limitem (2 minuty)
-                audio = self.recognizer.listen(source, timeout=120, phrase_time_limit=120)
-                
-            # Konwertuj audio na tekst
-            text = self.recognizer.recognize_google(audio, language='pl-PL')
-            
-            if text:
-                return text
-            else:
-                return None
-                    
-        except sr.WaitTimeoutError:
-            raise Exception("Przekroczono limit czasu oczekiwania na mowę. Spróbuj ponownie.")
-        except sr.UnknownValueError:
-            raise Exception("Nie udało się rozpoznać mowy. Mów wyraźniej i w normalnym tempie.")
-        except sr.RequestError as e:
-            raise Exception(f"Błąd serwisu rozpoznawania mowy: {e}. Sprawdź połączenie internetowe.")
-        except Exception as e:
-            raise Exception(f"Błąd nagrywania: {e}. Sprawdź czy mikrofon działa.")
-    
-    def get_audio_from_file(self, audio_file) -> Optional[str]:
-        """Konwersja audio z pliku na tekst"""
-        try:
-            # Wczytaj plik audio
-            audio = sr.AudioFile(audio_file)
-            
-            with audio as source:
-                # Konwertuj audio na tekst
-                text = self.recognizer.recognize_google(audio, language='pl-PL')
-                
-            if text:
-                return text
-            else:
-                return None
-                    
-        except Exception as e:
-            return None
+# Klasa SpeechRecognitionManager została usunięta dla kompatybilności ze Streamlit Cloud
 
 # Główna aplikacja
 class MultilingualApp:
@@ -1233,7 +1103,7 @@ class MultilingualApp:
         self.style_manager = None
         self.correction_manager = None
         self.flashcard_manager = None
-        self.speech_manager = None
+        # self.speech_manager = None  # Usunięte dla kompatybilności ze Streamlit Cloud
         self.client = None
     
     def render_sidebar(self):
@@ -1268,33 +1138,7 @@ class MultilingualApp:
         - 🎤 Ćwiczenia wymowy
         """)
         
-        # Sekcja ćwiczenia wymowy
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🎤 Ćwicz wymowę")
-        
-        # Wybór języka do ćwiczenia
-        practice_lang = st.sidebar.selectbox(
-            "🌍 Język do ćwiczenia",
-            ["Polski", "English", "Deutsch", "Français", "Español", "Italiano", "Português", "Русский", "中文", "日本語", "한국어"],
-            index=1
-        )
-        
-        # Przycisk do rozpoczęcia ćwiczenia
-        if st.sidebar.button("🎤 Rozpocznij ćwiczenie", use_container_width=True):
-            st.session_state.pronunciation_practice_active = True
-            st.session_state.practice_language = practice_lang
-            st.rerun()
-        
-        # Przycisk do zatrzymania ćwiczenia
-        if st.sidebar.button("⏹️ Zatrzymaj ćwiczenie", use_container_width=True, disabled=not st.session_state.get('pronunciation_practice_active', False)):
-            st.session_state.pronunciation_practice_active = False
-            st.rerun()
-        
-        # Status ćwiczenia wymowy
-        if st.session_state.get('pronunciation_practice_active', False):
-            st.sidebar.success(f"🎤 Ćwiczysz wymowę: **{st.session_state.practice_language}**")
-        else:
-            st.sidebar.info("🎤 Kliknij 'Rozpocznij ćwiczenie', żeby ćwiczyć wymowę")
+        # Sekcja ćwiczenia wymowy została usunięta dla kompatybilności ze Streamlit Cloud
         
         # Statystyki
         if 'request_count' not in st.session_state:
@@ -1413,70 +1257,15 @@ class MultilingualApp:
         </div>
         """, unsafe_allow_html=True)
         
-        # Sprawdź czy jest nagrany tekst
-        initial_text = ""
-        if 'recorded_translation_text' in st.session_state and st.session_state.recorded_translation_text:
-            initial_text = st.session_state.recorded_translation_text
-        
         text = st.text_area(
             self.labels["Wprowadź tekst tutaj:"][lang],
-            value=initial_text,
+            value="",
             height=150,
             placeholder="Wpisz tutaj tekst do przetłumaczenia...",
             key="translation_text"
         )
         
-        # Sekcja rozpoznawania mowy
-        st.markdown("---")
-        # Custom podnagłówek z odpowiednim CSS
-        st.markdown(f"""
-        <div style="margin: 0; width: 100%; box-sizing: border-box;">
-            <h2 style="margin: 0 0 20px 0; color: #495057; font-size: 24px; font-weight: 600; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">{self.labels["Lub nagraj swoją wypowiedź"][lang]}</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            if st.button(self.labels["Nagraj z mikrofonu"][lang], type="secondary", use_container_width=True, key="translation_mic"):
-                try:
-                    st.info("🎤 **Rozpocznij mówienie!** Nagrywanie zatrzyma się automatycznie po 2 sekundach ciszy.")
-                    recorded_text = self.speech_manager.get_audio_from_microphone()
-                    if recorded_text:
-                        st.session_state.recorded_translation_text = recorded_text
-                        st.success("✅ Nagrano tekst! Możesz go edytować powyżej.")
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Nie udało się nagrać tekstu. Sprawdź czy mikrofon działa i spróbuj ponownie.")
-                except Exception as e:
-                    st.error(f"❌ Błąd nagrywania: {str(e)}")
-                    st.info("💡 Sprawdź czy mikrofon jest podłączony i ma uprawnienia.")
-            
-            # Informacja o automatycznym zatrzymaniu (statyczny tekst)
-            st.caption("💡 Nagrywanie zatrzyma się automatycznie po 2 sekundach ciszy")
-            
-
-        
-        with col2:
-            if st.button(self.labels["Wczytaj plik audio"][lang], type="secondary", use_container_width=True, key="translation_file"):
-                audio_file = st.file_uploader(
-                    self.labels["Wybierz plik audio (WAV, MP3)"][lang],
-                    type=['wav', 'mp3'],
-                    key="translation_audio_upload"
-                )
-                if audio_file:
-                    recorded_text = self.speech_manager.get_audio_from_file(audio_file)
-                    if recorded_text:
-                        st.session_state.recorded_translation_text = recorded_text
-                        st.success("✅ Wczytano tekst z pliku! Możesz go edytować powyżej.")
-                        st.rerun()
-            
-            # Przycisk wyczyść tekst pod przyciskiem wczytaj plik
-            if st.button(self.labels["Wyczyść tekst"][lang], type="secondary", use_container_width=True, key="translation_clear"):
-                st.session_state.recorded_translation_text = ""
-                st.rerun()
-        
-        st.markdown("---")
+        # Sekcja audio została usunięta dla kompatybilności ze Streamlit Cloud
         
         # Opcje tłumaczenia
         col1, col2 = st.columns([1, 1])
@@ -1807,147 +1596,9 @@ class MultilingualApp:
         </div>
         """, unsafe_allow_html=True)
     
-    def render_pronunciation_practice_section(self, language: str):
-        """Renderowanie sekcji ćwiczenia wymowy"""
-        st.markdown("---")
-        st.header(f"🎤 Ćwiczenie wymowy - {language}")
-        
-        # Wybór typu ćwiczenia
-        practice_type = st.selectbox(
-            "🎯 Typ ćwiczenia:",
-            ["Słowa podstawowe", "Zwroty codzienne", "Liczby", "Kolory", "Członkowie rodziny"],
-            index=0
-        )
-        
-        # Generowanie słów do ćwiczenia
-        if st.button("🎲 Generuj słowa do ćwiczenia", type="primary"):
-            self.generate_practice_words(language, practice_type)
-        
-        # Sekcja nagrywania
-        st.markdown("---")
-        st.subheader("🎤 Nagrywanie wymowy")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🎤 Nagryj wymowę", type="secondary", use_container_width=True):
-                # Rozpocznij nagrywanie
-                recorded_text = self.speech_manager.get_audio_from_microphone()
-                if recorded_text:
-                    st.session_state.recorded_pronunciation = recorded_text
-                    st.success("✅ Nagrano wymowę!")
-        
-        with col2:
-            if st.button("📁 Wczytaj plik audio", type="secondary", use_container_width=True):
-                # Upload pliku audio
-                audio_file = st.file_uploader(
-                    "Wybierz plik audio (WAV, MP3)",
-                    type=['wav', 'mp3'],
-                    key="audio_upload"
-                )
-                if audio_file:
-                    recorded_text = self.speech_manager.get_audio_from_file(audio_file)
-                    if recorded_text:
-                        st.session_state.recorded_pronunciation = recorded_text
-                        st.success("✅ Wczytano wymowę z pliku!")
-        
-        # Wyświetl nagraną wymowę
-        if 'recorded_pronunciation' in st.session_state and st.session_state.recorded_pronunciation:
-            st.markdown("---")
-            st.subheader("🎯 Twoja wymowa:")
-            st.info(f"**Rozpoznano:** {st.session_state.recorded_pronunciation}")
-            
-            # Analiza wymowy
-            if st.button("🔍 Analizuj wymowę", type="primary"):
-                self.analyze_pronunciation(language, st.session_state.recorded_pronunciation)
+    # Metoda render_pronunciation_practice_section została usunięta dla kompatybilności ze Streamlit Cloud
     
-    def generate_practice_words(self, language: str, practice_type: str):
-        """Generowanie słów do ćwiczenia wymowy"""
-        try:
-            with st.spinner("🎲 Generuję słowa do ćwiczenia..."):
-                # Mapowanie typów ćwiczeń na prompty
-                prompts = {
-                    "Słowa podstawowe": f"Wygeneruj 5 podstawowych słów w języku {language} z transkrypcją fonetyczną. Format: Słowo - Transkrypcja - Znaczenie po polsku",
-                    "Zwroty codzienne": f"Wygeneruj 5 codziennych zwrotów w języku {language} z transkrypcją fonetyczną. Format: Zwrot - Transkrypcja - Znaczenie po polsku",
-                    "Liczby": f"Wygeneruj liczby od 1 do 10 w języku {language} z transkrypcji fonetyczną. Format: Liczba - Transkrypcja - Znaczenie po polsku",
-                    "Kolory": f"Wygeneruj 8 podstawowych kolorów w języku {language} z transkrypcją fonetyczną. Format: Kolor - Transkrypcja - Znaczenie po polsku",
-                    "Członkowie rodziny": f"Wygeneruj 8 członków rodziny w języku {language} z transkrypcją fonetyczną. Format: Członek rodziny - Transkrypcja - Znaczenie po polsku"
-                }
-                
-                prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
-                
-                messages = [
-                    {"role": "system", "content": f"Jesteś nauczycielem języka {language}. Generujesz słowa do ćwiczenia wymowy."},
-                    {"role": "user", "content": prompt}
-                ]
-                
-                result = self.openai_handler.make_request(messages)
-                if result:
-                    st.success("✅ Wygenerowano słowa do ćwiczenia!")
-                    st.markdown("---")
-                    st.subheader(f"📚 {practice_type} w języku {language}:")
-                    # Wyświetl słowa w lepszym formacie
-                    st.markdown("---")
-                    st.markdown(f"""
-                    <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;">
-                        <h4 style="margin: 0 0 15px 0; color: #6f42c1;">📚 {practice_type} w języku {language}:</h4>
-                        <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Zapisz w session state
-                    st.session_state.practice_words = result
-                else:
-                    st.error("❌ Nie udało się wygenerować słów do ćwiczenia.")
-                    
-        except Exception as e:
-            st.error(f"❌ Błąd generowania słów: {e}")
-    
-    def analyze_pronunciation(self, language: str, recorded_text: str):
-        """Analiza wymowy użytkownika"""
-        try:
-            with st.spinner("🔍 Analizuję wymowę..."):
-                prompt = f"""
-                Przeanalizuj wymowę użytkownika w języku {language}.
-                
-                Nagrany tekst: "{recorded_text}"
-                
-                Oceń:
-                1. Poprawność wymowy (1-10)
-                2. Główne błędy
-                3. Wskazówki do poprawy
-                4. Ćwiczenia do praktyki
-                
-                Odpowiedz w formacie:
-                **Ocena:** X/10
-                **Błędy:** [lista błędów]
-                **Wskazówki:** [wskazówki]
-                **Ćwiczenia:** [ćwiczenia]
-                """
-                
-                messages = [
-                    {"role": "system", "content": f"Jesteś ekspertem od wymowy języka {language}."},
-                    {"role": "user", "content": prompt}
-                ]
-                
-                result = self.openai_handler.make_request(messages)
-                if result:
-                    st.success("✅ Analiza wymowy zakończona!")
-                    st.markdown("---")
-                    st.subheader("📊 Analiza wymowy:")
-                    # Wyświetl analizę w lepszym formacie
-                    st.markdown("---")
-                    st.markdown(f"""
-                    <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #17a2b8;">
-                        <h4 style="margin: 0 0 15px 0; color: #17a2b8;">📊 Analiza wymowy:</h4>
-                        <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.error("❌ Nie udało się przeanalizować wymowy.")
-                    
-        except Exception as e:
-            st.error(f"❌ Błąd analizy wymowy: {e}")
+    # Metody związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
     
     def run(self):
         """Uruchomienie aplikacji"""
@@ -1969,7 +1620,7 @@ class MultilingualApp:
         self.style_manager = StyleManager(self.openai_handler)
         self.correction_manager = CorrectionManager(self.openai_handler)
         self.flashcard_manager = FlashcardManager(self.openai_handler)
-        self.speech_manager = SpeechRecognitionManager()
+        # self.speech_manager = SpeechRecognitionManager()  # Usunięte dla kompatybilności ze Streamlit Cloud
         
         # Renderuj sidebar
         lang, bg_color = self.render_sidebar()
@@ -1992,10 +1643,7 @@ class MultilingualApp:
         
         self.render_flashcard_section(lang)
         
-        # Sekcja ćwiczenia wymowy (jeśli jest aktywna)
-        if st.session_state.get('pronunciation_practice_active', False):
-            st.markdown("---")
-            self.render_pronunciation_practice_section(st.session_state.practice_language)
+        # Sekcja ćwiczenia wymowy została usunięta dla kompatybilności ze Streamlit Cloud
         
         # Stopka
         self.render_footer()
