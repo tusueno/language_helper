@@ -9,7 +9,7 @@ import hashlib
 from typing import Dict, List, Optional, Tuple
 import logging
 import tiktoken
-# Używamy wbudowanych funkcji Streamlit zamiast zewnętrznych bibliotek audio
+import io
 import tempfile
 import wave
 
@@ -44,7 +44,6 @@ logger = logging.getLogger(__name__)
 
 
 
-
 # Funkcja do inicjalizacji sesji
 def init_session_state():
     """Inicjalizacja stanu sesji"""
@@ -61,7 +60,6 @@ def init_session_state():
     if 'recorded_translation_text' not in st.session_state:
         st.session_state.recorded_translation_text = ""
     # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
-
 
 
 
@@ -121,7 +119,7 @@ def get_cached_response(cache_key: str):
 
 def set_cached_response(cache_key: str, data: any):
     """Zapisz wynik w cache"""
-    _cache_manager.set(cache_key, data, ttl=3600)  # 1 godzina
+    _cache_manager.set(cache_key, data)  # 1 godzina
 
 # Generowanie klucza cache
 def generate_cache_key(text: str, function: str, **kwargs) -> str:
@@ -251,7 +249,7 @@ class Labels:
                 "Polski": "✍️ Wpisz wiadomość do przetłumaczenia",
                 "English": "✍️ Enter message to translate",
                 "Deutsch": "✍️ Geben Sie eine Nachricht zum Übersetzen ein",
-                "Українська": "✍️ Введіть повідомлення для перекладу",
+                "Українська": "✍️ Введіть повідомлення dla переводу",
                 "Français": "✍️ Entrez un message à traduire",
                 "Español": "✍️ Introduce un mensaje para traducir",
                 "العربية": "✍️ أدخل رسالة للترجمة",
@@ -466,7 +464,7 @@ class Labels:
                 "Polski": "🎤 Nagraj z mikrofonu",
                 "English": "🎤 Record from microphone",
                 "Deutsch": "🎤 Vom Mikrofon aufnehmen",
-                "Українсьka": "🎤 Записати з мікрофона",
+                "Українська": "🎤 Записати з мікрофона",
                 "Français": "🎤 Enregistrer depuis le microphone",
                 "Español": "🎤 Grabar desde el micrófono",
                 "العربية": "🎤 سجل من الميكروفون",
@@ -624,6 +622,22 @@ class OpenAIHandler:
             error_msg = f"Błąd API OpenAI: {str(e)}"
             logger.error(error_msg)
             st.error(Utils.create_error_message(error_msg))
+            return None
+    
+    def transcribe_audio(self, file_bytes: bytes, filename: str = "audio.wav") -> Optional[str]:
+        """Transkrypcja audio w chmurze (OpenAI)"""
+        try:
+            self._rate_limit_delay()
+            bio = io.BytesIO(file_bytes)
+            bio.name = filename
+            with st.spinner("🎤 Rozpoznaję mowę..."):
+                resp = self.client.audio.transcriptions.create(
+                    model="gpt-4o-mini-transcribe",
+                    file=bio
+                )
+            return getattr(resp, "text", None)
+        except Exception as e:
+            st.error(f"❌ Błąd transkrypcji: {e}")
             return None
 
 # Klasa do zarządzania tłumaczeniami
@@ -1151,7 +1165,64 @@ class FlashcardManager:
             st.error(f"❌ Błąd generowania obrazów: {str(e)}")
             return None
 
-# Klasa SpeechRecognitionManager została usunięta dla kompatybilności ze Streamlit Cloud
+# Klasa do rozpoznawania mowy
+class SpeechRecognitionManager:
+    """Zarządzanie rozpoznawaniem mowy"""
+    
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        
+    def get_audio_from_microphone(self) -> Optional[str]:
+        """Nagrywanie audio z mikrofonu i konwersja na tekst"""
+        try:
+            # Użyj domyślnego mikrofonu
+            with sr.Microphone() as source:
+                # Dostosuj do hałasu otoczenia
+                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
+                
+                # Ustaw parametry dla lepszego nagrywania
+                self.recognizer.energy_threshold = 200
+                self.recognizer.dynamic_energy_threshold = False
+                self.recognizer.pause_threshold = 2.0
+                self.recognizer.non_speaking_duration = 2.0
+                
+                # Nagrywaj audio
+                audio = self.recognizer.listen(source, timeout=120, phrase_time_limit=120)
+                
+            # Konwertuj audio na tekst
+            text = self.recognizer.recognize_google(audio, language='pl-PL')
+            
+            if text:
+                return text
+            else:
+                return None
+                    
+        except sr.WaitTimeoutError:
+            raise Exception("Przekroczono limit czasu oczekiwania na mowę. Spróbuj ponownie.")
+        except sr.UnknownValueError:
+            raise Exception("Nie udało się rozpoznać mowy. Mów wyraźniej i w normalnym tempie.")
+        except sr.RequestError as e:
+            raise Exception(f"Błąd serwisu rozpoznawania mowy: {e}. Sprawdź połączenie internetowe.")
+        except Exception as e:
+            raise Exception(f"Błąd nagrywania: {e}. Sprawdź czy mikrofon działa.")
+    
+    def get_audio_from_file(self, audio_file) -> Optional[str]:
+        """Konwersja audio z pliku na tekst"""
+        try:
+            # Wczytaj plik audio
+            audio = sr.AudioFile(audio_file)
+            
+            with audio as source:
+                # Konwertuj audio na tekst
+                text = self.recognizer.recognize_google(audio, language='pl-PL')
+                
+            if text:
+                return text
+            else:
+                return None
+                    
+        except Exception as e:
+            return None
 
 # Główna aplikacja
 class MultilingualApp:
@@ -1168,7 +1239,7 @@ class MultilingualApp:
         self.style_manager = None
         self.correction_manager = None
         self.flashcard_manager = None
-        # self.speech_manager = None  # Usunięte dla kompatybilności ze Streamlit Cloud
+        self.speech_manager = None
         self.client = None
     
     def render_sidebar(self):
@@ -1335,9 +1406,8 @@ class MultilingualApp:
             key="translation_text"
         )
         
-        # Sekcja rozpoznawania mowy
+        # Sekcja rozpoznawania mowy (cloud-friendly)
         st.markdown("---")
-        # Custom podnagłówek z odpowiednim CSS
         st.markdown(f"""
         <div style="margin: 0; width: 100%; box-sizing: border-box;">
             <h2 style="margin: 0 0 20px 0; color: #495057; font-size: 24px; font-weight: 600; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">{self.labels["Lub nagraj swoją wypowiedź"][lang]}</h2>
@@ -1347,37 +1417,31 @@ class MultilingualApp:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # Używamy wbudowanego file_uploader dla audio
-            st.info("🎤 Aby nagrać audio, użyj aplikacji do nagrywania na swoim urządzeniu")
-            st.info("📱 Możesz nagrać audio w telefonie i wczytać plik")
-            
-            # Prosty upload audio
-            audio_file = st.file_uploader(
-                self.labels["Nagraj z mikrofonu"][lang],
-                type=['wav', 'mp3', 'm4a'],
-                key="translation_mic"
-            )
-            
-            if audio_file:
-                st.audio(audio_file, format="audio/wav")
-                st.success("✅ Wczytano audio! Możesz go odsłuchać powyżej.")
-        
+            mic_data = st.audio_input(self.labels["Nagraj z mikrofonu"][lang], key="translation_mic")
+            if mic_data is not None:
+                audio_bytes = mic_data.getvalue()
+                text_from_mic = self.openai_handler.transcribe_audio(audio_bytes, "mic.wav")
+                if text_from_mic:
+                    st.session_state.recorded_translation_text = text_from_mic
+                    st.success("✅ Nagrano i rozpoznano! Tekst dodano powyżej.")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Nie udało się rozpoznać mowy.")
         with col2:
-            # Upload pliku audio
             audio_file = st.file_uploader(
                 self.labels["Wczytaj plik audio"][lang],
-                type=['wav', 'mp3'],
+                type=["wav", "mp3", "m4a"],
                 key="translation_audio_upload"
             )
-            
-            if audio_file:
-                st.audio(audio_file, format="audio/wav")
-                st.success("✅ Wczytano plik audio! Możesz go odsłuchać powyżej.")
-            
-            # Przycisk wyczyść tekst
-            if st.button(self.labels["Wyczyść tekst"][lang], type="secondary", use_container_width=True, key="translation_clear"):
-                st.session_state.recorded_translation_text = ""
-                st.rerun()
+            if audio_file is not None:
+                uploaded_bytes = audio_file.getvalue()
+                text_from_file = self.openai_handler.transcribe_audio(uploaded_bytes, audio_file.name)
+                if text_from_file:
+                    st.session_state.recorded_translation_text = text_from_file
+                    st.success("✅ Wczytano i rozpoznano! Tekst dodano powyżej.")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Nie udało się rozpoznać mowy z pliku.")
         
         st.markdown("---")
         
@@ -1734,7 +1798,7 @@ class MultilingualApp:
         self.style_manager = StyleManager(self.openai_handler)
         self.correction_manager = CorrectionManager(self.openai_handler)
         self.flashcard_manager = FlashcardManager(self.openai_handler)
-        # self.speech_manager = SpeechRecognitionManager()  # Usunięte dla kompatybilności ze Streamlit Cloud
+        self.speech_manager = SpeechRecognitionManager()
         
         # Renderuj sidebar
         lang, bg_color = self.render_sidebar()
