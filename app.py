@@ -59,6 +59,11 @@ def init_session_state():
         st.session_state.cost_history = []
     if 'recorded_translation_text' not in st.session_state:
         st.session_state.recorded_translation_text = ""
+    # Wersjonowanie kluczy widgetów audio, aby uniknąć ponownego przetwarzania po rerun
+    if 'mic_widget_version' not in st.session_state:
+        st.session_state.mic_widget_version = 0
+    if 'file_widget_version' not in st.session_state:
+        st.session_state.file_widget_version = 0
     # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
 
 
@@ -1416,27 +1421,33 @@ class MultilingualApp:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            mic_data = st.audio_input(self.labels["Nagraj z mikrofonu"][lang], key="translation_mic")
+            mic_key = f"translation_mic_v{st.session_state.mic_widget_version}"
+            mic_data = st.audio_input(self.labels["Nagraj z mikrofonu"][lang], key=mic_key)
             if mic_data is not None:
                 audio_bytes = mic_data.getvalue()
                 text_from_mic = self.openai_handler.transcribe_audio(audio_bytes, "mic.wav")
                 if text_from_mic:
                     st.session_state.recorded_translation_text = text_from_mic
+                    # Zresetuj widget przez zmianę klucza (inkrementacja wersji)
+                    st.session_state.mic_widget_version += 1
                     st.success("✅ Nagrano i rozpoznano! Tekst dodano powyżej.")
                     st.rerun()
                 else:
                     st.warning("⚠️ Nie udało się rozpoznać mowy.")
         with col2:
+            file_key = f"translation_audio_upload_v{st.session_state.file_widget_version}"
             audio_file = st.file_uploader(
                 self.labels["Wczytaj plik audio"][lang],
                 type=["wav", "mp3", "m4a"],
-                key="translation_audio_upload"
+                key=file_key
             )
             if audio_file is not None:
                 uploaded_bytes = audio_file.getvalue()
                 text_from_file = self.openai_handler.transcribe_audio(uploaded_bytes, audio_file.name)
                 if text_from_file:
                     st.session_state.recorded_translation_text = text_from_file
+                    # Zresetuj widget przez zmianę klucza (inkrementacja wersji)
+                    st.session_state.file_widget_version += 1
                     st.success("✅ Wczytano i rozpoznano! Tekst dodano powyżej.")
                     st.rerun()
                 else:
