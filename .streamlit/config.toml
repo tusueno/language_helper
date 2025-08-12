@@ -1,0 +1,32 @@
+[global]
+# Konfiguracja globalna aplikacji
+developmentMode = false
+
+[server]
+# Ustawienia serwera
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+# Ustawienia przeglądarki
+gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
+
+[theme]
+# Motyw aplikacji
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"
+
+[client]
+# Ustawienia klienta
+showErrorDetails = true
+
+[runner]
+# Ustawienia runnera
+magicEnabled = true
