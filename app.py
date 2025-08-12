@@ -533,6 +533,43 @@ class Labels:
                 "Arabski (libański dialekt)": "🔄 لغة عشوائية (لبناني)",
                 "中文": "🔄 随机语言",
                 "日本語": "🔄 ランダム言語"
+            },
+            # Fiszki – wybór języka definicji
+            "Wybierz język definicji fiszek": {
+                "Polski": "Wybierz język definicji fiszek",
+                "English": "Choose flashcard definition language",
+                "Deutsch": "Wähle die Sprache der Definitionen",
+                "Українська": "Виберіть мову визначень для карток",
+                "Français": "Choisissez la langue des définitions",
+                "Español": "Elige el idioma de las definiciones",
+                "العربية": "اختر لغة التعاريف",
+                "Arabski (libański dialekt)": "اختر لغة التعاريف (لبناني)",
+                "中文": "选择定义语言",
+                "日本語": "定義の言語を選択"
+            },
+            "Język definicji": {
+                "Polski": "Język definicji",
+                "English": "Definition language",
+                "Deutsch": "Definitionssprache",
+                "Українська": "Мова визначень",
+                "Français": "Langue des définitions",
+                "Español": "Idioma de las definiciones",
+                "العربية": "لغة التعاريف",
+                "Arabski (libański dialekt)": "لغة التعاريف (لبناني)",
+                "中文": "定义语言",
+                "日本語": "定義の言語"
+            },
+            "Język interfejsu (opcja)": {
+                "Polski": "Język interfejsu",
+                "English": "Interface language",
+                "Deutsch": "Interface-Sprache",
+                "Українська": "Мова інтерфейсу",
+                "Français": "Langue de l'interface",
+                "Español": "Idioma de la interfaz",
+                "العربية": "لغة الواجهة",
+                "Arabski (libański dialekt)": "لغة الواجهة (لبناني)",
+                "中文": "界面语言",
+                "日本語": "インターフェースの言語"
             }
         }
 
@@ -1810,11 +1847,11 @@ class MultilingualApp:
         )
         
         # Wybór języka definicji (interfejs / lista)
-        st.caption("Wybierz język definicji fiszek")
+        st.caption(self.labels["Wybierz język definicji fiszek"][lang])
         definition_lang_choice = st.selectbox(
-            "Język definicji",
+            self.labels["Język definicji"][lang],
             [
-                "Język interfejsu",
+                self.labels["Język interfejsu (opcja)"][lang],
                 "Polish",
                 "English",
                 "German",
@@ -1841,9 +1878,7 @@ class MultilingualApp:
             "中文": "Chinese",
             "日本語": "Japanese",
         }
-        effective_definition_lang = (
-            interface_to_lang.get(lang, "Polish") if definition_lang_choice == "Język interfejsu" else definition_lang_choice
-        )
+        effective_definition_lang = interface_to_lang.get(lang, "Polish") if definition_lang_choice == self.labels["Język interfejsu (opcja)"][lang] else definition_lang_choice
 
         if st.button(
             self.labels["Wygeneruj fiszki"][lang],
