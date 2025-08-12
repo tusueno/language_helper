@@ -59,6 +59,11 @@ def init_session_state():
         st.session_state.cost_history = []
     if 'recorded_translation_text' not in st.session_state:
         st.session_state.recorded_translation_text = ""
+    # Pronunciation practice state
+    if 'practice_text' not in st.session_state:
+        st.session_state.practice_text = ""
+    if 'practice_mic_version' not in st.session_state:
+        st.session_state.practice_mic_version = 0
     # Wersjonowanie kluczy widgetów audio, aby uniknąć ponownego przetwarzania po rerun
     if 'mic_widget_version' not in st.session_state:
         st.session_state.mic_widget_version = 0
@@ -1278,7 +1283,20 @@ class MultilingualApp:
         - 🎤 Ćwiczenia wymowy
         """)
         
-        # Sekcja ćwiczenia wymowy została usunięta dla kompatybilności ze Streamlit Cloud
+        # 🎤 Ćwicz wymowę (cloud-friendly: nagrywanie + transkrypcja bez lokalnych bibliotek)
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🎤 Ćwicz wymowę")
+        practice_mic_key = f"practice_mic_v{st.session_state.practice_mic_version}"
+        practice_mic = st.sidebar.audio_input("🎤 Nagraj wymowę", key=practice_mic_key)
+        if practice_mic is not None:
+            txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav")
+            if txt:
+                st.session_state.practice_text = txt
+                st.session_state.practice_mic_version += 1
+                st.sidebar.success("✅ Rozpoznano wymowę")
+        if st.session_state.practice_text:
+            st.sidebar.caption("🔎 Ostatnia rozpoznana wypowiedź:")
+            st.sidebar.info(st.session_state.practice_text)
         
         # Statystyki
         if 'request_count' not in st.session_state:
@@ -1409,6 +1427,13 @@ class MultilingualApp:
             placeholder="Wpisz tutaj tekst do przetłumaczenia...",
             key="translation_text"
         )
+        # Wyczyść tekst – przycisk pod polem
+        clear_col, _ = st.columns([1, 3])
+        with clear_col:
+            if st.button("🗑️ Wyczyść tekst", key="translation_clear_btn", use_container_width=True):
+                st.session_state.recorded_translation_text = ""
+                st.session_state.translation_text = ""
+                st.rerun()
         
         # Sekcja rozpoznawania mowy (cloud-friendly)
         st.markdown("---")
