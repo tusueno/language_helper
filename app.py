@@ -9,7 +9,7 @@ import hashlib
 from typing import Dict, List, Optional, Tuple
 import logging
 import tiktoken
-from streamlit_audio_recorder import audio_recorder
+# Używamy wbudowanych funkcji Streamlit zamiast zewnętrznych bibliotek audio
 import tempfile
 import wave
 
@@ -1347,21 +1347,20 @@ class MultilingualApp:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # Użyj streamlit-audio-recorder zamiast problematycznej SpeechRecognition
-            audio_bytes = audio_recorder(
-                text=self.labels["Nagraj z mikrofonu"][lang],
-                recording_color="#e74c3c",
-                neutral_color="#6c757d",
-                icon_name="microphone",
-                icon_size="2x",
+            # Używamy wbudowanego file_uploader dla audio
+            st.info("🎤 Aby nagrać audio, użyj aplikacji do nagrywania na swoim urządzeniu")
+            st.info("📱 Możesz nagrać audio w telefonie i wczytać plik")
+            
+            # Prosty upload audio
+            audio_file = st.file_uploader(
+                self.labels["Nagraj z mikrofonu"][lang],
+                type=['wav', 'mp3', 'm4a'],
                 key="translation_mic"
             )
             
-            if audio_bytes:
-                st.audio(audio_bytes, format="audio/wav")
-                # Tutaj możesz dodać konwersję audio na tekst (jeśli chcesz)
-                # Na razie pokazujemy tylko nagranie
-                st.success("✅ Nagrano audio! Możesz go odsłuchać powyżej.")
+            if audio_file:
+                st.audio(audio_file, format="audio/wav")
+                st.success("✅ Wczytano audio! Możesz go odsłuchać powyżej.")
         
         with col2:
             # Upload pliku audio
