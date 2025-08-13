@@ -4091,6 +4091,14 @@ class MultilingualApp:
 # Uruchomienie aplikacji
 if __name__ == "__main__":
     try:
+        # Inicjalizacja stanu sesji NAJPIERW
+        try:
+            init_session_state()
+        except Exception as session_error:
+            st.error("⚠️ **Błąd inicjalizacji stanu sesji**")
+            st.error(f"**Błąd:** {str(session_error)}")
+            st.info("🔄 Kontynuuję bez inicjalizacji sesji...")
+        
         # Inicjalizacja aplikacji z error handlingiem
         app = MultilingualApp()
         
