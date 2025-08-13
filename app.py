@@ -3654,85 +3654,106 @@ class MultilingualApp:
                             with col2:
                                 st.markdown(f"**💡 {ex_label}** {card.get('example', missing_word)}")
                     
-                    # Generuj obrazy fiszek
-                    st.markdown("---")
-                    # Wyświetl nagłówek w lepszym formacie
-                    st.markdown(f"""
-                    <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;">
-                        <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">🖼️ {self.labels['Download flashcards to print'][lang]}</h4>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Wybór formatu (z kluczami, bez natychmiastowego generowania)
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        format_choice = st.selectbox(
-                            self.labels["Select format"][lang],
-                            [self.labels["Format - PNG best"][lang], self.labels["Format - JPG smaller"][lang], self.labels["Format - PDF print"][lang]],
-                            index=0,
-                            key="flashcards_format"
-                        )
-                    with col2:
-                        quality_choice = st.selectbox(
-                            self.labels["Quality"][lang],
-                            [self.labels["Quality - High"][lang], self.labels["Quality - Medium"][lang], self.labels["Quality - Low"][lang]],
-                            index=0,
-                            key="flashcards_quality"
-                        )
-                    with col3:
-                        size_choice = st.selectbox(
-                            self.labels["Flashcard size"][lang],
-                            [self.labels["Size - Large"][lang], self.labels["Size - Medium"][lang], self.labels["Size - Small"][lang]],
-                            index=0,
-                            key="flashcards_size"
-                        )
-
-                    # Przycisk generowania obrazu (unikamy ciężkiego przeliczenia przy każdej zmianie selecta)
-                    if st.button(self.labels.get("Generate image", {}).get(lang, "🖼️ Generate image"), key="flashcards_generate_image_btn"):
-                        image_data = self.flashcard_manager.generate_images(flashcards_data, size_choice, format_choice, quality_choice)
-                        st.session_state.flashcards_image = {
-                            "data": image_data,
-                            "format_choice": format_choice,
-                            "quality_choice": quality_choice,
-                            "size_choice": size_choice,
-                        }
-
-                    image_state = st.session_state.get("flashcards_image")
-                    image_data = image_state.get("data") if image_state else None
-
-                    if image_data:
-                        st.success(self.labels.get("Image generated ok", {}).get(lang, "✅ Image generated successfully!"))
-                        
-                        # Podgląd obrazu
+                    # Generuj obrazy fiszek - z lepszym error handlingiem
+                    try:
+                        st.markdown("---")
+                        # Wyświetl nagłówek w lepszym formacie
                         st.markdown(f"""
-                        <div style=\"background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;\">
-                            <h4 style=\"margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;\">{self.labels.get('Flashcards preview', {}).get(lang, '👀 Flashcards preview:')}</h4>
+                        <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;">
+                            <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">🖼️ {self.labels['Download flashcards to print'][lang]}</h4>
                         </div>
                         """, unsafe_allow_html=True)
-                        st.image(image_data, caption=self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:"), use_container_width=True)
                         
-                        # Przyciski pobierania
-                        col1, col2 = st.columns(2)
+                        # Wybór formatu (z kluczami, bez natychmiastowego generowania)
+                        col1, col2, col3 = st.columns(3)
                         with col1:
-                            # Określenie formatu i rozszerzenia pliku
-                            current_format_choice = image_state.get("format_choice") if image_state else format_choice
-                            if current_format_choice and "JPG" in current_format_choice:
-                                file_extension = "jpg"
-                                mime_type = "image/jpeg"
-                            else:
-                                file_extension = "png"
-                                mime_type = "image/png"
-                            
-                            st.download_button(
-                                label=self.labels["Download flashcards"][lang],
-                                data=image_data,
-                                file_name=f"fiszki_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}",
-                                mime=mime_type,
-                                use_container_width=True,
-                                type="primary"
+                            format_choice = st.selectbox(
+                                self.labels["Select format"][lang],
+                                [self.labels["Format - PNG best"][lang], self.labels["Format - JPG smaller"][lang], self.labels["Format - PDF print"][lang]],
+                                index=0,
+                                key="flashcards_format"
                             )
-                        
+                        with col2:
+                            quality_choice = st.selectbox(
+                                self.labels["Quality"][lang],
+                                [self.labels["Quality - High"][lang], self.labels["Quality - Medium"][lang], self.labels["Quality - Low"][lang]],
+                                index=0,
+                                key="flashcards_quality"
+                            )
+                        with col3:
+                            size_choice = st.selectbox(
+                                self.labels["Flashcard size"][lang],
+                                [self.labels["Size - Large"][lang], self.labels["Size - Medium"][lang], self.labels["Size - Small"][lang]],
+                                index=0,
+                                key="flashcards_size"
+                            )
 
+                        # Przycisk generowania obrazu (unikamy ciężkiego przeliczenia przy każdej zmianie selecta)
+                        if st.button(self.labels.get("Generate image", {}).get(lang, "🖼️ Generate image"), key="flashcards_generate_image_btn"):
+                            try:
+                                with st.spinner("🎨 Generuję obraz fiszek..."):
+                                    image_data = self.flashcard_manager.generate_images(flashcards_data, size_choice, format_choice, quality_choice)
+                                    if image_data:
+                                        st.session_state.flashcards_image = {
+                                            "data": image_data,
+                                            "format_choice": format_choice,
+                                            "quality_choice": quality_choice,
+                                            "size_choice": size_choice,
+                                        }
+                                        st.success("✅ Obraz został wygenerowany!")
+                                    else:
+                                        st.error("❌ Nie udało się wygenerować obrazu")
+                            except Exception as image_error:
+                                st.error(f"❌ Błąd podczas generowania obrazu: {str(image_error)}")
+                                st.info("🔄 Spróbuj ponownie lub wybierz inne ustawienia")
+                    except Exception as section_error:
+                        st.error(f"❌ Błąd w sekcji generowania obrazów: {str(section_error)}")
+                        st.info("🔄 Kontynuuję bez generowania obrazów...")
+
+                    # Wyświetlanie obrazów z error handlingiem
+                    try:
+                        image_state = st.session_state.get("flashcards_image")
+                        image_data = image_state.get("data") if image_state else None
+
+                        if image_data:
+                            st.success(self.labels.get("Image generated ok", {}).get(lang, "✅ Image generated successfully!"))
+                            
+                            # Podgląd obrazu
+                            st.markdown(f"""
+                            <div style=\"background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;\">
+                                <h4 style=\"margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;\">{self.labels.get('Flashcards preview', {}).get(lang, '👀 Flashcards preview:')}</h4>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            try:
+                                st.image(image_data, caption=self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:"), use_container_width=True)
+                            except Exception as image_display_error:
+                                st.error(f"❌ Błąd podczas wyświetlania obrazu: {str(image_display_error)}")
+                                st.info("🔄 Obraz został wygenerowany, ale nie można go wyświetlić")
+                            
+                            # Przyciski pobierania
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                # Określenie formatu i rozszerzenia pliku
+                                current_format_choice = image_state.get("format_choice") if image_state else format_choice
+                                if current_format_choice and "JPG" in current_format_choice:
+                                    file_extension = "jpg"
+                                    mime_type = "image/jpeg"
+                                else:
+                                    file_extension = "png"
+                                    mime_type = "image/png"
+                                
+                                st.download_button(
+                                    label=self.labels["Download flashcards"][lang],
+                                    data=image_data,
+                                    file_name=f"fiszki_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}",
+                                    mime=mime_type,
+                                    use_container_width=True,
+                                    type="primary"
+                                )
+                            
+                            with col2:
+                                st.info("💡 **Wskazówka:** Kliknij przycisk powyżej, aby pobrać fiszki do druku")
                         
                         # Szczegółowe instrukcje (i18n)
                         expander_label = self.labels["Cutting instructions - expander"][lang]
@@ -3740,7 +3761,11 @@ class MultilingualApp:
                             st.markdown(self.labels["Cutting instructions - content"][lang])
                         
                         st.info(self.labels["Quick tips"][lang])
-                    else:
+                    except Exception as display_error:
+                        st.error(f"❌ Błąd podczas wyświetlania obrazów: {str(display_error)}")
+                        st.info("🔄 Kontynuuję bez wyświetlania obrazów...")
+                    
+                    if not image_data:
                         st.info(self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:") + " — " + (self.labels.get("Generate image", {}).get(lang, "click 'Generate image' to preview")))
                 else:
                     st.warning("Nie udało się wygenerować fiszek.")
