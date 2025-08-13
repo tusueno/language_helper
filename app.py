@@ -246,13 +246,112 @@ def api_key_input():
     
     return api_key
 
+# Klasy pomocnicze do i18n z automatycznym fallbackiem tłumaczeń
+class LabelsEntry:
+    """Pojedyncza etykieta wielojęzyczna z automatycznym fallbackiem tłumaczenia."""
+
+    def __init__(self, key: str, language_to_text: Dict[str, str]):
+        self.key = key
+        self.language_to_text = language_to_text
+
+    def _get_base_text(self) -> str:
+        # Preferuj English, następnie Polski, potem dowolną istniejącą wartość
+        if "English" in self.language_to_text and self.language_to_text["English"]:
+            return self.language_to_text["English"]
+        if "Polski" in self.language_to_text and self.language_to_text["Polski"]:
+            return self.language_to_text["Polski"]
+        for _lang, _text in self.language_to_text.items():
+            if _text:
+                return _text
+        return self.key
+
+    def _translate_on_the_fly(self, target_lang: str) -> str:
+        import streamlit as st  # lokalny import, aby uniknąć cykli
+        cache = st.session_state.setdefault("i18n_cache", {})
+        lang_cache = cache.setdefault(target_lang, {})
+        if self.key in lang_cache and lang_cache[self.key]:
+            translated = lang_cache[self.key]
+            self.language_to_text[target_lang] = translated
+            return translated
+
+        base_text = self._get_base_text()
+
+        translator = Labels._translator
+        if translator is None:
+            return base_text
+
+        prompt = (
+            f"Translate the following UI label to {target_lang}. Keep any emoji and punctuation EXACTLY as in the source. "
+            f"Return ONLY the translated text, no quotes, no extra words.\nLabel: {base_text}"
+        )
+        messages = [
+            {"role": "system", "content": "You are a professional UI localizer. Keep emoji and casing exactly."},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            translated = translator(messages) or base_text
+            translated = translated.strip()
+        except Exception:
+            translated = base_text
+
+        lang_cache[self.key] = translated
+        self.language_to_text[target_lang] = translated
+        return translated
+
+    def __getitem__(self, target_lang: str) -> str:
+        if target_lang in self.language_to_text and self.language_to_text[target_lang]:
+            return self.language_to_text[target_lang]
+        return self._translate_on_the_fly(target_lang)
+
+    def get(self, target_lang: str, default: str = "") -> str:
+        try:
+            return self.__getitem__(target_lang)
+        except Exception:
+            return default
+
+
+class LabelsStore:
+    """Kontener na wszystkie etykiety z API podobnym do dict, z auto-fallbackiem."""
+
+    def __init__(self, data: Dict[str, Dict[str, str]]):
+        self._data = data
+        self._entries: Dict[str, LabelsEntry] = {}
+
+    def __getitem__(self, key: str) -> LabelsEntry:
+        if key not in self._entries:
+            self._entries[key] = LabelsEntry(key, self._data.get(key, {}))
+        return self._entries[key]
+
+    def get(self, key: str, default: Optional[Dict[str, str]] = None) -> LabelsEntry:
+        if key not in self._data:
+            self._data[key] = {}
+        return self.__getitem__(key)
+
+
 # Słownik etykiet z lepszą organizacją
 class Labels:
     """Zarządzanie etykietami w różnych językach"""
+
+    _translator = None  # ustawiane w runtime
+
+    @staticmethod
+    def set_translator(openai_handler) -> None:
+        if openai_handler is None:
+            Labels._translator = None
+            return
+
+        def _translate_messages(messages):
+            return openai_handler.make_request(messages)
+
+        Labels._translator = _translate_messages
+
+    @staticmethod
+    def wrap_labels(data: Dict[str, Dict[str, str]]) -> LabelsStore:
+        return LabelsStore(data)
     
     @staticmethod
-    def get_labels() -> Dict[str, Dict[str, str]]:
-        return {
+    def get_labels() -> LabelsStore:
+        return Labels.wrap_labels({
             "Tłumacz wielojęzyczny": {
                 "Polski": "🌍 Tłumacz Wielojęzyczny",
                 "English": "🌍 Multilingual Translator",
@@ -2021,7 +2120,7 @@ class Labels:
                 "中文": "用 ❤️ 使用 Streamlit 和 OpenAI 制作",
                 "日本語": "Streamlit と OpenAI で ❤️ を込めて作成"
             }
-        }
+        })
 
 # Lista języków do tłumaczenia
 class Languages:
@@ -2092,7 +2191,7 @@ class OpenAIHandler:
             time.sleep(1 - time_since_last)
         self.last_request_time = time.time()
     
-    def make_request(self, messages: List[Dict], model: str = "gpt-4o") -> Optional[str]:
+    def make_request(self, messages: List[Dict], model: str = "gpt-4o-mini", temperature: float = 0.7, max_tokens: int = 1200) -> Optional[str]:
         """Wykonanie requestu do OpenAI z obsługą błędów"""
         try:
             self._rate_limit_delay()
@@ -2118,8 +2217,8 @@ class OpenAIHandler:
                 response = self.client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    temperature=0.7,
-                    max_tokens=2000
+                    temperature=temperature,
+                    max_tokens=max_tokens
                 )
             
             # Policz tokeny wyjściowe i zaktualizuj statystyki
@@ -2137,7 +2236,7 @@ class OpenAIHandler:
             st.error(Utils.create_error_message(error_msg))
             return None
     
-    def transcribe_audio(self, file_bytes: bytes, filename: str = "audio.wav") -> Optional[str]:
+    def transcribe_audio(self, file_bytes: bytes, filename: str = "audio.wav", language_code: Optional[str] = None) -> Optional[str]:
         """Transkrypcja audio w chmurze (OpenAI)"""
         try:
             self._rate_limit_delay()
@@ -2156,10 +2255,24 @@ class OpenAIHandler:
                 "日本語": "🎤 音声認識中..."
             }.get(st.session_state.get("interface_lang", "Polski"), "🎤 Recognizing speech...")
             with st.spinner(t_spinner_label):
-                resp = self.client.audio.transcriptions.create(
-                    model="gpt-4o-mini-transcribe",
-                    file=bio
-                )
+                try:
+                    if language_code:
+                        resp = self.client.audio.transcriptions.create(
+                            model="gpt-4o-mini-transcribe",
+                            file=bio,
+                            language=language_code
+                        )
+                    else:
+                        resp = self.client.audio.transcriptions.create(
+                            model="gpt-4o-mini-transcribe",
+                            file=bio
+                        )
+                except Exception:
+                    # Fallback bez podpowiedzi języka
+                    resp = self.client.audio.transcriptions.create(
+                        model="gpt-4o-mini-transcribe",
+                        file=bio
+                    )
             return getattr(resp, "text", None)
         except Exception as e:
             st.error(f"❌ Błąd transkrypcji: {e}")
@@ -2869,70 +2982,8 @@ class MultilingualApp:
         st.sidebar.subheader(self.labels["O aplikacji"][lang])
         st.sidebar.markdown(self.labels["About content"][lang])
         
-        # 🎤 Ćwicz wymowę – pełna sekcja
+        # Sekcja ćwiczeń przeniesiona na ekran główny
         st.sidebar.markdown("---")
-        st.sidebar.subheader(self.labels["Ćwicz wymowę"][lang])
-        practice_lang = st.sidebar.selectbox(
-            self.labels["Język do ćwiczenia"][lang],
-            ["English", "German", "French", "Spanish", "Italian", "Polish", "Arabic", "Chinese", "Japanese"],
-            index=0,
-            key="practice_language_select"
-        )
-        practice_type = st.sidebar.selectbox(
-            self.labels["Typ ćwiczenia"][lang],
-            [
-                self.labels["Opt - Słowa podstawowe"][lang],
-                self.labels["Opt - Zwroty codzienne"][lang],
-                self.labels["Opt - Liczby"][lang],
-                self.labels["Opt - Kolory"][lang],
-                self.labels["Opt - Członkowie rodziny"][lang],
-            ],
-            index=0,
-            key="practice_type_select"
-        )
-        if st.sidebar.button(self.labels["Generuj słowa do ćwiczenia"][lang], use_container_width=True):
-            # Zmapuj z powrotem na polskie klucze logiki promptu
-            reverse_map = {
-                self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
-                self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
-                self.labels["Opt - Liczby"][lang]: "Liczby",
-                self.labels["Opt - Kolory"][lang]: "Kolory",
-                self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
-            }
-            selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
-            self.generate_practice_words(practice_lang, selected_key)
-
-        # Jeżeli mamy wynik w stanie, pokaż go zawsze w sidebarze wraz z przyciskiem czyszczenia
-        if st.session_state.get("practice_words_result"):
-            st.sidebar.markdown(f"""
-            <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;\">
-                <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {st.session_state.practice_words_display_type} ({st.session_state.practice_words_language}):</h4>
-                <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{st.session_state.practice_words_result}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.sidebar.button(
-                self.labels["Clear practice result"][lang],
-                key="clear_practice_sidebar",
-                use_container_width=True,
-                on_click=lambda: [
-                    st.session_state.pop("practice_words_result", None),
-                    st.session_state.pop("practice_words_display_type", None),
-                    st.session_state.pop("practice_words_language", None),
-                ],
-            )
-        practice_mic_key = f"practice_mic_v{st.session_state.practice_mic_version}"
-        practice_mic = st.sidebar.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
-        if practice_mic is not None:
-            txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav")
-            if txt:
-                st.session_state.practice_text = txt
-                st.session_state.practice_mic_version += 1
-                st.sidebar.success(self.labels["Rozpoznano wymowę"][lang])
-        if st.session_state.practice_text:
-            st.sidebar.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
-            st.sidebar.info(st.session_state.practice_text)
-            if st.sidebar.button(self.labels["Analizuj wymowę"][lang], use_container_width=True):
-                self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
         
         # Statystyki
         if 'request_count' not in st.session_state:
@@ -2946,20 +2997,44 @@ class MultilingualApp:
         """Generowanie słów do ćwiczenia wymowy (Cloud)"""
         try:
             prompts = {
-                "Słowa podstawowe": f"Generate 5 basic words in {language} with phonetic transcription. Format: Word - Transcription - Meaning in Polish",
-                "Zwroty codzienne": f"Generate 5 common daily phrases in {language} with phonetic transcription. Format: Phrase - Transcription - Meaning in Polish",
-                "Liczby": f"Generate numbers 1-10 in {language} with phonetic transcription. Format: Number - Transcription - Meaning in Polish",
-                "Kolory": f"Generate 8 basic colors in {language} with phonetic transcription. Format: Color - Transcription - Meaning in Polish",
-                "Członkowie rodziny": f"Generate 8 family members in {language} with phonetic transcription. Format: Family member - Transcription - Meaning in Polish",
+                "Słowa podstawowe": (
+                    f"Generate 7 basic yet varied words in {language} with phonetic transcription. "
+                    f"Avoid repeating items from the provided 'previous_items' list. "
+                    f"Prefer diversity across parts of speech. "
+                    f"Randomize selection on each call. "
+                    f"Format each item strictly as: Word - Transcription - Meaning in Polish"
+                ),
+                "Zwroty codzienne": (
+                    f"Generate 7 common daily phrases in {language} with phonetic transcription. "
+                    f"Avoid repeating items from 'previous_items'. Randomize selection. "
+                    f"Format: Phrase - Transcription - Meaning in Polish"
+                ),
+                "Liczby": (
+                    f"Generate 10 numbers 1-10 in {language} with phonetic transcription. "
+                    f"If 'previous_items' overlaps, shuffle order and provide alternative usage examples in parentheses. "
+                    f"Format: Number - Transcription - Meaning in Polish"
+                ),
+                "Kolory": (
+                    f"Generate 10 basic colors in {language} with phonetic transcription. "
+                    f"Avoid repeating items from 'previous_items'. Randomize selection. "
+                    f"Format: Color - Transcription - Meaning in Polish"
+                ),
+                "Członkowie rodziny": (
+                    f"Generate 10 family members in {language} with phonetic transcription. "
+                    f"Avoid repeating items from 'previous_items'. Randomize selection. "
+                    f"Format: Family member - Transcription - Meaning in Polish"
+                ),
             }
             prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
+            history_key = f"practice_history::{language}::{practice_type}"
+            prev_items = st.session_state.get(history_key, [])
             messages = [
-                {"role": "system", "content": f"Jesteś nauczycielem języka {language}. Generujesz słowa do ćwiczenia wymowy."},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": f"You are a language teacher for {language}. Provide varied, non-repeating items with phonetic transcription. Keep output concise."},
+                {"role": "user", "content": prompt + (f"\nprevious_items: {prev_items}" if prev_items else "")},
             ]
-            result = self.openai_handler.make_request(messages)
+            result = self.openai_handler.make_request(messages, temperature=0.9)
             if result:
-                st.sidebar.success(self.labels["Success: words generated"][st.session_state.interface_lang])
+                st.success(self.labels["Success: words generated"][st.session_state.interface_lang])
                 display_type_key = f"Opt - {practice_type}"
                 display_type = self.labels.get(display_type_key, {}).get(st.session_state.interface_lang, practice_type)
                 # Zapamiętaj wynik i ustaw flagę przewinięcia
@@ -2967,18 +3042,22 @@ class MultilingualApp:
                 st.session_state.practice_words_display_type = display_type
                 st.session_state.practice_words_language = language
                 st.session_state.scroll_to_practice = True
-                # Pokaż także w sidebarze
-                st.sidebar.markdown(f"""
-                <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;\">
-                    <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
-                    <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                # Aktualizacja historii wygenerowanych elementów
+                try:
+                    new_items = []
+                    for line in result.splitlines():
+                        if " - " in line:
+                            head = line.split(" - ", 1)[0].strip()
+                            if head and head not in prev_items:
+                                new_items.append(head)
+                    st.session_state[history_key] = (prev_items + new_items)[-200:]
+                except Exception:
+                    pass
                 st.rerun()
             else:
-                st.sidebar.error(self.labels["Error: words not generated"][st.session_state.interface_lang])
+                st.error(self.labels["Error: words not generated"][st.session_state.interface_lang])
         except Exception as e:
-            st.sidebar.error(f"{self.labels['Error: words generation exception'][st.session_state.interface_lang]} {e}")
+            st.error(f"{self.labels['Error: words generation exception'][st.session_state.interface_lang]} {e}")
 
     def analyze_pronunciation(self, language: str, recorded_text: str):
         """Analiza wymowy (Cloud)"""
@@ -3160,7 +3239,20 @@ class MultilingualApp:
             mic_data = st.audio_input(self.labels["Nagraj z mikrofonu"][lang], key=mic_key)
             if mic_data is not None:
                 audio_bytes = mic_data.getvalue()
-                text_from_mic = self.openai_handler.transcribe_audio(audio_bytes, "mic.wav")
+                interface_lang_hints = {
+                    "Polski": "pl-PL",
+                    "English": "en-US",
+                    "Deutsch": "de-DE",
+                    "Українська": "uk-UA",
+                    "Français": "fr-FR",
+                    "Español": "es-ES",
+                    "العربية": "ar",
+                    "Arabski (libański dialekt)": "ar",
+                    "中文": "zh-CN",
+                    "日本語": "ja-JP"
+                }
+                lang_hint = interface_lang_hints.get(lang, None)
+                text_from_mic = self.openai_handler.transcribe_audio(audio_bytes, "mic.wav", language_code=lang_hint)
                 if text_from_mic:
                     st.session_state.recorded_translation_text = text_from_mic
                     # Zresetuj widget przez zmianę klucza (inkrementacja wersji)
@@ -3178,7 +3270,20 @@ class MultilingualApp:
             )
             if audio_file is not None:
                 uploaded_bytes = audio_file.getvalue()
-                text_from_file = self.openai_handler.transcribe_audio(uploaded_bytes, audio_file.name)
+                interface_lang_hints = {
+                    "Polski": "pl-PL",
+                    "English": "en-US",
+                    "Deutsch": "de-DE",
+                    "Українська": "uk-UA",
+                    "Français": "fr-FR",
+                    "Español": "es-ES",
+                    "العربية": "ar",
+                    "Arabski (libański dialekt)": "ar",
+                    "中文": "zh-CN",
+                    "日本語": "ja-JP"
+                }
+                lang_hint = interface_lang_hints.get(lang, None)
+                text_from_file = self.openai_handler.transcribe_audio(uploaded_bytes, audio_file.name, language_code=lang_hint)
                 if text_from_file:
                     st.session_state.recorded_translation_text = text_from_file
                     # Zresetuj widget przez zmianę klucza (inkrementacja wersji)
@@ -3728,6 +3833,8 @@ class MultilingualApp:
 
         # Inicjalizacja menedżerów
         self.openai_handler = OpenAIHandler(self.client)
+        # Rejestracja translatora dla auto‑tłumaczeń etykiet
+        Labels.set_translator(self.openai_handler)
         self.translation_manager = TranslationManager(self.openai_handler)
         self.explanation_manager = ExplanationManager(self.openai_handler)
         self.style_manager = StyleManager(self.openai_handler)
@@ -3743,17 +3850,7 @@ class MultilingualApp:
         # Aplikuj motyw
         self.apply_theme("Ciemny" if bg_color == self.labels["Ciemny"][lang] else "Jasny")
 
-        # Jeśli wygenerowano słowa do praktyki, pokaż panel również na głównym ekranie
-        if st.session_state.get("practice_words_result"):
-            display_type = st.session_state.get("practice_words_display_type", "Practice words")
-            language = st.session_state.get("practice_words_language", "")
-            result_html = st.session_state.get("practice_words_result", "")
-            st.markdown(f"""
-            <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin-bottom: 16px;\">
-                <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
-                <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        # (przeniesiono render wyników do sekcji Ćwicz wymowę, tu już nie wyświetlamy)
 
         # Sekcje aplikacji
         self.render_translation_section(lang)
@@ -3766,6 +3863,113 @@ class MultilingualApp:
         st.markdown("---")
 
         self.render_flashcard_section(lang)
+
+        # Nowa sekcja: Ćwicz wymowę (przeniesiona z sidebara)
+        st.markdown("---")
+        st.markdown(f"""
+        <div style=\"margin: 0; width: 100%; box-sizing: border-box;\">
+            <h2 style=\"margin: 0 0 20px 0; color: #495057; font-size: 24px; font-weight: 600; text-align: left;\">{self.labels['Ćwicz wymowę'][lang]}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_practice_1, col_practice_2 = st.columns([1, 1])
+        with col_practice_1:
+            practice_lang = st.selectbox(
+                self.labels["Język do ćwiczenia"][lang],
+                ["English", "German", "French", "Spanish", "Italian", "Polish", "Arabic", "Chinese", "Japanese"],
+                index=0,
+                key="practice_language_select_main"
+            )
+        with col_practice_2:
+            practice_type = st.selectbox(
+                self.labels["Typ ćwiczenia"][lang],
+                [
+                    self.labels["Opt - Słowa podstawowe"][lang],
+                    self.labels["Opt - Zwroty codzienne"][lang],
+                    self.labels["Opt - Liczby"][lang],
+                    self.labels["Opt - Kolory"][lang],
+                    self.labels["Opt - Członkowie rodziny"][lang],
+                ],
+                index=0,
+                key="practice_type_select_main"
+            )
+
+        if st.button(self.labels["Generuj słowa do ćwiczenia"][lang], use_container_width=True, key="generate_practice_main"):
+            reverse_map = {
+                self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
+                self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
+                self.labels["Opt - Liczby"][lang]: "Liczby",
+                self.labels["Opt - Kolory"][lang]: "Kolory",
+                self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
+            }
+            selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
+            self.generate_practice_words(practice_lang, selected_key)
+
+        # Przyciski: Wygeneruj inne (pomijając ostatnie) i Wyczyść historię
+        ctrl_col1, ctrl_col2 = st.columns([1, 1])
+        with ctrl_col1:
+            if st.button("🔄 Wygeneruj inne", key="generate_practice_alt"):
+                # Zachowaj historię, ale ponów wywołanie dla nowych propozycji
+                reverse_map = {
+                    self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
+                    self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
+                    self.labels["Opt - Liczby"][lang]: "Liczby",
+                    self.labels["Opt - Kolory"][lang]: "Kolory",
+                    self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
+                }
+                selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
+                self.generate_practice_words(practice_lang, selected_key)
+        with ctrl_col2:
+            if st.button("🧹 Wyczyść historię", key="clear_practice_history"):
+                # Wyczyść historię bieżącego języka i typu
+                history_key = f"practice_history::{practice_lang}::{selected_key if 'selected_key' in locals() else 'Słowa podstawowe'}"
+                st.session_state.pop(history_key, None)
+                st.session_state.pop("practice_words_result", None)
+                st.rerun()
+
+        # Wyświetl wygenerowane słowa bezpośrednio pod przyciskiem
+        if st.session_state.get("practice_words_result"):
+            display_type = st.session_state.get("practice_words_display_type", "Practice words")
+            language = st.session_state.get("practice_words_language", "")
+            result_html = st.session_state.get("practice_words_result", "")
+            st.markdown(f"""
+            <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin: 16px 0;\">
+                <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
+                <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Nagrywanie i analiza na głównym ekranie z podpowiedzią językową
+        mic_col, _ = st.columns([1, 1])
+        with mic_col:
+            practice_mic_key = f"practice_mic_main_v{st.session_state.practice_mic_version}"
+            language_hints = {
+                "Polish": "pl-PL",
+                "Polski": "pl-PL",
+                "English": "en-US",
+                "German": "de-DE",
+                "French": "fr-FR",
+                "Spanish": "es-ES",
+                "Italian": "it-IT",
+                "Arabic": "ar-SA",
+                "Chinese": "zh-CN",
+                "Japanese": "ja-JP"
+            }
+            hint = language_hints.get(practice_lang, None)
+            practice_mic = st.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
+            if practice_mic is not None:
+                txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav", language_code=hint)
+                if txt:
+                    st.session_state.practice_text = txt
+                    st.session_state.practice_mic_version += 1
+                    st.success(self.labels["Rozpoznano wymowę"][lang])
+                    st.rerun()
+
+        if st.session_state.practice_text:
+            st.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
+            st.info(st.session_state.practice_text)
+            if st.button(self.labels["Analizuj wymowę"][lang], use_container_width=True, key="analyze_pronunciation_main"):
+                self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
 
         # Stopka
         self.render_footer(lang)
