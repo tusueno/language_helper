@@ -346,7 +346,6 @@ class Labels:
         Labels._translator = _translate_messages
 
     @staticmethod
-    @st.cache_data(ttl=7200)  # Cache na 2 godziny
     def wrap_labels(data: Dict[str, Dict[str, str]]) -> LabelsStore:
         return LabelsStore(data)
     
@@ -2602,15 +2601,20 @@ class FlashcardManager:
         # Dostęp do etykiet dla i18n rysowanych elementów (title/labels)
         self.labels = Labels.get_labels()
     
-    @st.cache_data(ttl=1800)  # Cache na 30 minut
     def generate_flashcards(self, text: str, definition_language: str) -> Optional[Dict]:
         """Generowanie fiszek z tekstu z definicjami w wybranym języku i zwracanie struktury danych - zoptymalizowane dla Cloud"""
-        # Sprawdź cache
+        # Sprawdź cache (używamy prostszego cache bez dekoratora)
         cache_key = generate_cache_key(text, "flashcards")
         cached_result = get_cached_response(cache_key)
         if cached_result:
             st.info("📋 Wynik z cache")
             return cached_result
+        
+        # Dodatkowy cache w session_state dla Cloud
+        session_cache_key = f"flashcards_cache_{hash(text[:100])}_{definition_language}"
+        if session_cache_key in st.session_state:
+            st.info("📋 Wynik z cache sesji")
+            return st.session_state[session_cache_key]
         
         # Walidacja
         is_valid, error_msg = Utils.validate_text(text)
@@ -2653,6 +2657,8 @@ class FlashcardManager:
             if isinstance(parsed_result, dict) and "flashcards" in parsed_result:
                 if isinstance(parsed_result["flashcards"], list) and len(parsed_result["flashcards"]) > 0:
                     set_cached_response(cache_key, parsed_result)
+                    # Zapisz też w session cache
+                    st.session_state[session_cache_key] = parsed_result
                     return parsed_result
             
             # Jeśli struktura jest niepoprawna, spróbuj naprawić
@@ -2673,6 +2679,8 @@ class FlashcardManager:
                     if isinstance(parsed_result, dict) and "flashcards" in parsed_result:
                         if isinstance(parsed_result["flashcards"], list) and len(parsed_result["flashcards"]) > 0:
                             set_cached_response(cache_key, parsed_result)
+                            # Zapisz też w session cache
+                            st.session_state[session_cache_key] = parsed_result
                             return parsed_result
             except:
                 pass
@@ -2683,7 +2691,6 @@ class FlashcardManager:
         
         return None
     
-    @st.cache_data(ttl=3600)  # Cache na 1 godzinę
     def generate_images(self, flashcards_data: Dict, size_choice: str = "Duże (800×600)", format_choice: str = "PNG (najlepsza jakość)", quality_choice: str = "Wysoka") -> Optional[bytes]:
         """Generuje obrazy PNG z fiszkami w wybranym rozmiarze - zoptymalizowane dla Streamlit Cloud"""
         try:
