@@ -291,13 +291,26 @@ class LabelsEntry:
         return self.key
 
     def _translate_on_the_fly(self, target_lang: str) -> str:
-        import streamlit as st  # lokalny import, aby uniknąć cykli
-        cache = st.session_state.setdefault("i18n_cache", {})
-        lang_cache = cache.setdefault(target_lang, {})
-        if self.key in lang_cache and lang_cache[self.key]:
-            translated = lang_cache[self.key]
-            self.language_to_text[target_lang] = translated
-            return translated
+        try:
+            import streamlit as st  # lokalny import, aby uniknąć cykli
+            # Sprawdź czy session_state jest dostępne
+            if not hasattr(st, 'session_state'):
+                return self._get_base_text()
+            
+            # Sprawdź czy session_state jest w pełni zainicjalizowany
+            try:
+                cache = st.session_state.setdefault("i18n_cache", {})
+                lang_cache = cache.setdefault(target_lang, {})
+                if self.key in lang_cache and lang_cache[self.key]:
+                    translated = lang_cache[self.key]
+                    self.language_to_text[target_lang] = translated
+                    return translated
+            except (AttributeError, RuntimeError, Exception):
+                # Jeśli session_state nie jest gotowe, wróć do podstawowego tekstu
+                return self._get_base_text()
+        except Exception:
+            # Jeśli coś pójdzie nie tak z session_state, wróć do podstawowego tekstu
+            return self._get_base_text()
 
         base_text = self._get_base_text()
 
@@ -319,8 +332,17 @@ class LabelsEntry:
         except Exception:
             translated = base_text
 
-        lang_cache[self.key] = translated
-        self.language_to_text[target_lang] = translated
+        try:
+            # Bezpieczne zapisanie do cache
+            if hasattr(st, 'session_state'):
+                cache = st.session_state.setdefault("i18n_cache", {})
+                lang_cache = cache.setdefault(target_lang, {})
+                lang_cache[self.key] = translated
+                self.language_to_text[target_lang] = translated
+        except Exception:
+            # Ignoruj błędy cache
+            pass
+            
         return translated
 
     def __getitem__(self, target_lang: str) -> str:
@@ -3646,23 +3668,25 @@ class MultilingualApp:
                 flashcards_data = self.flashcard_manager.generate_flashcards(flashcard_text, effective_definition_lang)
                 
                 if flashcards_data and "flashcards" in flashcards_data:
-                    # Zachowaj dane fiszek w stanie i przejdź do stałej sekcji podglądu
+                    # Sprawdź czy to nie są fiszki z błędami
+                    if len(flashcards_data["flashcards"]) == 1 and flashcards_data["flashcards"][0].get("word", "").startswith("Błąd"):
+                        st.error("❌ Wystąpił błąd podczas generowania fiszek. Spróbuj ponownie.")
+                        st.info("💡 **Wskazówka:** Upewnij się, że tekst jest w języku, który chcesz przetłumaczyć.")
+                        return
+                    
+                    # Zachowaj dane fiszek w stanie
                     st.session_state.flashcards_data = flashcards_data
                     st.session_state.flashcards_image = None
-                    st.rerun()
-                    st.markdown("---")
+                    
+                    # Pokaż sukces
+                    st.success("✅ **Fiszki zostały wygenerowane!**")
+                    
                     # Wyświetl fiszki w lepszym formacie
                     st.markdown(f"""
                     <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;">
                     <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">📖 {self.labels['Generated flashcards'][lang] if 'Generated flashcards' in self.labels else self.labels['Fiszki ze słówek do nauki'][lang]}</h4>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    # Sprawdź czy to nie są fiszki z błędami
-                    if len(flashcards_data["flashcards"]) == 1 and flashcards_data["flashcards"][0].get("word", "").startswith("Błąd"):
-                        st.error("❌ Wystąpił błąd podczas generowania fiszek. Spróbuj ponownie.")
-                        st.info("💡 **Wskazówka:** Upewnij się, że tekst jest w języku, który chcesz przetłumaczyć.")
-                        return
                     
                     # Wyświetl fiszki w ładnym formacie (i18n)
                     for i, card in enumerate(flashcards_data["flashcards"], 1):
@@ -3726,6 +3750,7 @@ class MultilingualApp:
                                             "size_choice": size_choice,
                                         }
                                         st.success("✅ Obraz został wygenerowany!")
+                                        st.rerun()  # Odśwież po wygenerowaniu obrazu
                                     else:
                                         st.error("❌ Nie udało się wygenerować obrazu")
                             except Exception as image_error:
