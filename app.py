@@ -3850,6 +3850,46 @@ class MultilingualApp:
     
     # Metody związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
     
+    def render_setup_screen(self):
+        """Renderowanie ekranu setup - wybór języka i klucz API"""
+        # Wybór języka interfejsu na głównej stronie
+        interface_lang = st.selectbox(
+            "🌐 Język interfejsu / Interface language",
+            ["Polski", "English", "Deutsch", "Українська", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"],
+            index=["Polski", "English", "Deutsch", "Українська", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"].index(st.session_state.interface_lang),
+            key="setup_interface_lang"
+        )
+        
+        if interface_lang != st.session_state.interface_lang:
+            st.session_state.interface_lang = interface_lang
+            st.rerun()
+
+        lang = st.session_state.interface_lang
+        
+        # Nagłówek po wybraniu języka
+        st.markdown(f"""
+        <div style=\"margin: 0; width: 100%; box-sizing: border-box;\">
+            <h1 style=\"margin: 0 0 24px 0; color: #1f77b4; font-size: 32px; font-weight: 700; text-align: left;\">{self.labels["Tłumacz wielojęzyczny"][lang]}</h1>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Klucz API na głównej stronie
+        api_key_placeholder = "sk-..."
+        api_key_label = "🔑 Wprowadź swój klucz API OpenAI:" if lang == "Polski" else "🔑 Enter your OpenAI API key:"
+        proceed_label = "✅ Rozpocznij" if lang == "Polski" else "✅ Start"
+        
+        api_key_val = st.text_input(api_key_label, type="password", placeholder=api_key_placeholder)
+        proceed = st.button(proceed_label)
+        
+        if proceed:
+            if not api_key_val or not api_key_val.startswith("sk-"):
+                st.error("❌ Nieprawidłowy klucz API (powinien zaczynać się od 'sk-')" if lang == "Polski" else "❌ Invalid API key (must start with 'sk-')")
+                return
+            
+            st.session_state.api_key = api_key_val
+            st.session_state.setup_done = True
+            st.rerun()
+    
     def run(self):
         """Uruchomienie aplikacji - zoptymalizowane dla Streamlit Cloud"""
         try:
