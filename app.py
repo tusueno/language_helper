@@ -4090,7 +4090,58 @@ class MultilingualApp:
 
 # Uruchomienie aplikacji
 if __name__ == "__main__":
-    # Inicjalizacja stanu sesji przed uruchomieniem aplikacji
-    init_session_state()
-    app = MultilingualApp()
-    app.run()
+    try:
+        # Inicjalizacja aplikacji z error handlingiem
+        app = MultilingualApp()
+        
+        # Uruchomienie z try-catch na najwyższym poziomie
+        try:
+            app.run()
+        except Exception as e:
+            st.error("🚨 **Krytyczny błąd aplikacji!**")
+            st.error(f"**Błąd:** {str(e)}")
+            st.error("**Typ błędu:** " + type(e).__name__)
+            
+            # Debug info
+            st.code(f"""
+            Szczegóły błędu:
+            {str(e)}
+            
+            Traceback:
+            {e.__traceback__}
+            """, language="text")
+            
+            # Sugestie naprawy
+            st.info("🔄 **Spróbuj:**")
+            st.info("1. Odśwież stronę (F5)")
+            st.info("2. Sprawdź czy API key jest poprawny")
+            st.info("3. Sprawdź połączenie internetowe")
+            st.info("4. Jeśli problem się powtarza, skontaktuj się z supportem")
+            
+            # Przycisk restart
+            if st.button("🔄 Restart aplikacji"):
+                st.rerun()
+                
+    except Exception as init_error:
+        st.error("🚨 **Błąd inicjalizacji aplikacji!**")
+        st.error(f"**Błąd:** {str(init_error)}")
+        st.error("**Typ błędu:** " + type(init_error).__name__)
+        
+        # Debug info
+        st.code(f"""
+        Szczegóły błędu inicjalizacji:
+        {str(init_error)}
+        
+        Traceback:
+        {init_error.__traceback__}
+        """, language="text")
+        
+        # Sugestie naprawy
+        st.info("🔄 **Spróbuj:**")
+        st.info("1. Odśwież stronę (F5)")
+        st.info("2. Sprawdź czy wszystkie pliki są dostępne")
+        st.info("3. Sprawdź logi Streamlit Cloud")
+        
+        # Przycisk restart
+        if st.button("🔄 Restart aplikacji"):
+            st.rerun()
