@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from openai import OpenAI
 import os
 import re
@@ -12,6 +13,10 @@ import tiktoken
 import io
 import tempfile
 import wave
+try:
+    import speech_recognition as sr  # type: ignore
+except Exception:
+    sr = None  # type: ignore
 
 # Cache manager - prosty cache w pamięci
 class SimpleCacheManager:
@@ -73,6 +78,11 @@ def init_session_state():
     if 'file_widget_version' not in st.session_state:
         st.session_state.file_widget_version = 0
     # Zmienne związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
+    # Ustawienia startowe (setup gate)
+    if 'setup_done' not in st.session_state:
+        st.session_state.setup_done = False
+    if 'interface_lang' not in st.session_state:
+        st.session_state.interface_lang = "Polski"
 
 
 
@@ -166,39 +176,36 @@ def update_usage_stats(input_tokens: int, output_tokens: int, model: str):
     })
 
 # Funkcja do wyświetlania statystyk użycia
-def display_usage_stats():
-    """Wyświetl statystyki użycia API"""
+def display_usage_stats(lang: str, labels: Dict[str, Dict[str, str]]):
+    """Wyświetl statystyki użycia API (i18n)"""
     with st.sidebar:
-        st.markdown("### 📊 Statystyki użycia API")
+        st.markdown(f"### {labels['API stats'][lang]}")
         
-        # Aktualne statystyki
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("🔢 Łącznie tokenów", f"{st.session_state.total_tokens:,}")
-        with col2:
-            st.metric("💰 Łączny koszt", f"${st.session_state.total_cost:.4f}")
+        # Aktualne statystyki (ułożone pionowo, by nie poszerzać sidebara)
+        st.metric(labels["Total tokens"][lang], f"{st.session_state.total_tokens:,}")
+        st.metric(labels["Total cost"][lang], f"${st.session_state.total_cost:.4f}")
         
         # Szczegółowe statystyki
         if st.session_state.token_history:
-            st.markdown("#### 📈 Ostatnie użycie:")
+            st.markdown(f"#### {labels['Last usage'][lang]}")
             latest = st.session_state.token_history[-1]
             # Oblicz koszt dla ostatniego użycia
             latest_cost = calculate_cost(latest['model'], latest['input_tokens'], latest['output_tokens'])
             st.info(f"""
-            **Model:** {latest['model']}  
-            **Tokeny wejściowe:** {latest['input_tokens']:,}  
-            **Tokeny wyjściowe:** {latest['output_tokens']:,}  
-            **Koszt:** ${latest_cost:.4f}
+            **{labels['Model label'][lang]}** {latest['model']}  
+            **{labels['Input tokens'][lang]}** {latest['input_tokens']:,}  
+            **{labels['Output tokens'][lang]}** {latest['output_tokens']:,}  
+            **{labels['Cost label'][lang]}** ${latest_cost:.4f}
             """)
         
         # Historia kosztów
         if st.session_state.cost_history:
-            with st.expander("📊 Historia kosztów"):
+            with st.expander(labels["Cost history"][lang]):
                 for entry in reversed(st.session_state.cost_history[-10:]):  # Ostatnie 10
                     st.text(f"{entry['timestamp']}: ${entry['cost']:.4f} ({entry['model']})")
         
         # Reset statystyk
-        if st.button("🔄 Resetuj statystyki", use_container_width=True):
+        if st.button(labels["Reset stats"][lang], use_container_width=True):
             st.session_state.total_tokens = 0
             st.session_state.total_cost = 0.0
             st.session_state.token_history = []
@@ -257,6 +264,876 @@ class Labels:
                 "Arabski (libański dialekt)": "🌍 مترجم متعدد اللغات (لبناني)",
                 "中文": "🌍 多语言翻译器",
                 "日本語": "🌍 多言語翻訳者"
+            },
+            "Detected language": {
+                "Polski": "🔍 Wykryty język",
+                "English": "🔍 Detected language",
+                "Deutsch": "🔍 Erkannte Sprache",
+                "Українська": "🔍 Визначена мова",
+                "Français": "🔍 Langue détectée",
+                "Español": "🔍 Idioma detectado",
+                "العربية": "🔍 اللغة المكتشفة",
+                "Arabski (libański dialekt)": "🔍 اللغة المكتشفة",
+                "中文": "🔍 检测到的语言",
+                "日本語": "🔍 検出された言語"
+            },
+            "Corrected text": {
+                "Polski": "✏️ Poprawiony tekst",
+                "English": "✏️ Corrected text",
+                "Deutsch": "✏️ Korrigierter Text",
+                "Українська": "✏️ Виправлений текст",
+                "Français": "✏️ Texte corrigé",
+                "Español": "✏️ Texto corregido",
+                "العربية": "✏️ النص المصحح",
+                "Arabski (libański dialekt)": "✏️ النص المصحح",
+                "中文": "✏️ 修正后的文本",
+                "日本語": "✏️ 修正されたテキスト"
+            },
+            "Transcription": {
+                "Polski": "🔤 Transkrypcja",
+                "English": "🔤 Transcription",
+                "Deutsch": "🔤 Transkription",
+                "Українська": "🔤 Транскрипція",
+                "Français": "🔤 Transcription",
+                "Español": "🔤 Transcripción",
+                "العربية": "🔤 النسخ الصوتي",
+                "Arabski (libański dialekt)": "🔤 التفريغ الصوتي",
+                "中文": "🔤 转写",
+                "日本語": "🔤 転写"
+            },
+            "Generate image": {
+                "Polski": "🖼️ Wygeneruj obraz",
+                "English": "🖼️ Generate image",
+                "Deutsch": "🖼️ Bild generieren",
+                "Українська": "🖼️ Згенерувати зображення",
+                "Français": "🖼️ Générer l'image",
+                "Español": "🖼️ Generar imagen",
+                "العربية": "🖼️ ولّد الصورة",
+                "Arabski (libański dialekt)": "🖼️ ولّد الصورة",
+                "中文": "🖼️ 生成图像",
+                "日本語": "🖼️ 画像を生成"
+            },
+            "Quick tips": {
+                "Polski": "💡 **Szybkie instrukcje:** Wydrukuj obraz, wytnij fiszki wzdłuż linii i złóż na pół. Możesz zalaminować dla trwałości!",
+                "English": "💡 **Quick tips:** Print the image, cut along the lines, and fold in half. Laminating increases durability!",
+                "Deutsch": "💡 **Schnelle Tipps:** Bild drucken, entlang der Linien schneiden und in der Mitte falten. Laminieren erhöht die Haltbarkeit!",
+                "Українська": "💡 **Швидкі поради:** Надрукуйте зображення, виріжте по лініях і складіть навпіл. Ламінування підвищує міцність!",
+                "Français": "💡 **Conseils rapides :** Imprimez l'image, découpez le long des lignes et pliez en deux. Le plastifiage augmente la durabilité !",
+                "Español": "💡 **Consejos rápidos:** Imprime la imagen, corta por las líneas y dóblala por la mitad. ¡Laminar aumenta la durabilidad!",
+                "العربية": "💡 **نصائح سريعة:** اطبع الصورة، قصّ على طول الخطوط واطوِ إلى النصف. التغليف يزيد المتانة!",
+                "Arabski (libański dialekt)": "💡 **نصايح سريعة:** اطبع الصورة، قصّ عالخطوط واطوّيها بالنص. التغليف بيزيد المتانة!",
+                "中文": "💡 **快速提示：** 打印图片，沿线裁切并对折。覆膜可提高耐用性！",
+                "日本語": "💡 **クイックヒント：** 画像を印刷し、線に沿って切って二つ折りにします。ラミネートすると耐久性が上がります！"
+            },
+            "Image generated ok": {
+                "Polski": "✅ Obraz został wygenerowany pomyślnie!",
+                "English": "✅ Image generated successfully!",
+                "Deutsch": "✅ Bild erfolgreich generiert!",
+                "Українська": "✅ Зображення успішно згенеровано!",
+                "Français": "✅ Image générée avec succès !",
+                "Español": "✅ ¡Imagen generada con éxito!",
+                "العربية": "✅ تم إنشاء الصورة بنجاح!",
+                "Arabski (libański dialekt)": "✅ الصورة تولّدت بنجاح!",
+                "中文": "✅ 图像生成成功！",
+                "日本語": "✅ 画像が正常に生成されました！"
+            },
+            "Flashcards preview": {
+                "Polski": "👀 Podgląd fiszek:",
+                "English": "👀 Flashcards preview:",
+                "Deutsch": "👀 Vorschau der Karteikarten:",
+                "Українська": "👀 Попередній перегляд карток:",
+                "Français": "👀 Aperçu des fiches :",
+                "Español": "👀 Vista previa de las tarjetas:",
+                "العربية": "👀 معاينة البطاقات:",
+                "Arabski (libański dialekt)": "👀 معاينة البطاقات:",
+                "中文": "👀 卡片预览：",
+                "日本語": "👀 フラッシュカードのプレビュー："
+            },
+            "Flashcard expander title": {
+                "Polski": "Fiszka",
+                "English": "Flashcard",
+                "Deutsch": "Karte",
+                "Українська": "Картка",
+                "Français": "Fiche",
+                "Español": "Tarjeta",
+                "العربية": "بطاقة",
+                "Arabski (libański dialekt)": "بطاقة",
+                "中文": "卡片",
+                "日本語": "カード"
+            },
+            "Missing - word": {
+                "Polski": "Brak",
+                "English": "N/A",
+                "Deutsch": "k.A.",
+                "Українська": "Н/Д",
+                "Français": "N/A",
+                "Español": "N/D",
+                "العربية": "غير متوفر",
+                "Arabski (libański dialekt)": "مش متوفر",
+                "中文": "无",
+                "日本語": "なし"
+            },
+            "Cutting instructions - expander": {
+                "Polski": "📋 📏 Szczegółowe instrukcje wycinania",
+                "English": "📋 📏 Detailed cutting instructions",
+                "Deutsch": "📋 📏 Detaillierte Ausschneideanleitung",
+                "Українська": "📋 📏 Детальні інструкції з вирізання",
+                "Français": "📋 📏 Instructions détaillées de découpe",
+                "Español": "📋 📏 Instrucciones detalladas de corte",
+                "العربية": "📋 📏 تعليمات مفصلة للقص",
+                "Arabski (libański dialekt)": "📋 📏 تعليمات قص مفصلة",
+                "中文": "📋 📏 详细裁剪说明",
+                "日本語": "📋 📏 詳細な切り抜き手順"
+            },
+            "Cutting instructions - content": {
+                "Polski": """
+                            ### ✂️ **Jak wyciąć i przygotować fiszki:**
+                            
+                            **📏 Wymiary fiszek:** 
+                            - **Duże:** 800×600 pikseli (≈ 21×16 cm)
+                            - **Średnie:** 600×450 pikseli (≈ 16×12 cm)  
+                            - **Małe:** 400×300 pikseli (≈ 10×8 cm)
+                            
+                            **🖨️ Drukowanie:**
+                            1. Użyj papieru A4 (210×297 mm)
+                            2. Ustaw jakość drukowania na "Wysoką"
+                            3. Wyłącz skalowanie - drukuj w 100%
+                            
+                            **✂️ Wycinanie:**
+                            1. Wytnij każdą fiszkę wzdłuż niebieskiej ramki
+                            2. Złóż na pół wzdłuż pomarańczowej linii
+                            3. Słówko będzie na przodzie, definicja na tyle
+                            
+                            **💎 Laminowanie (opcjonalne):**
+                            - Użyj folii laminującej 125 mikronów
+                            - Temperatura: 130-140°C
+                            - Czas: 30-60 sekund
+                            
+                            **🎯 Wskazówki:**
+                            - Użyj ostrych nożyczek lub noża introligatorskiego
+                            - Możesz użyć perforatora do łatwiejszego składania
+                            - Przechowuj w pudełku lub teczce
+                            """,
+                "English": """
+                            ### ✂️ **How to cut and prepare flashcards:**
+                            
+                            **📏 Flashcard sizes:** 
+                            - **Large:** 800×600 px (≈ 21×16 cm)
+                            - **Medium:** 600×450 px (≈ 16×12 cm)  
+                            - **Small:** 400×300 px (≈ 10×8 cm)
+                            
+                            **🖨️ Printing:**
+                            1. Use A4 paper (210×297 mm)
+                            2. Set print quality to "High"
+                            3. Disable scaling – print at 100%
+                            
+                            **✂️ Cutting:**
+                            1. Cut each card along the blue border
+                            2. Fold in half along the orange line
+                            3. Word on the front, definition on the back
+                            
+                            **💎 Laminating (optional):**
+                            - Use 125-micron laminating pouches
+                            - Temperature: 130–140°C
+                            - Time: 30–60 seconds
+                            
+                            **🎯 Tips:**
+                            - Use sharp scissors or a craft knife
+                            - You can score the fold line for easier folding
+                            - Store in a box or folder
+                            """,
+                "Deutsch": """
+                            ### ✂️ **Karteikarten ausschneiden und vorbereiten:**
+                            
+                            **📏 Kartengrößen:** 
+                            - **Groß:** 800×600 px (≈ 21×16 cm)
+                            - **Mittel:** 600×450 px (≈ 16×12 cm)  
+                            - **Klein:** 400×300 px (≈ 10×8 cm)
+                            
+                            **🖨️ Drucken:**
+                            1. A4-Papier verwenden (210×297 mm)
+                            2. Druckqualität auf „Hoch“ stellen
+                            3. Skalierung deaktivieren – in 100% drucken
+                            
+                            **✂️ Schneiden:**
+                            1. Jede Karte entlang des blauen Randes ausschneiden
+                            2. Entlang der orangefarbenen Linie in der Mitte falten
+                            3. Wort vorne, Definition hinten
+                            
+                            **💎 Laminieren (optional):**
+                            - Laminierfolien 125 µm verwenden
+                            - Temperatur: 130–140°C
+                            - Zeit: 30–60 Sekunden
+                            
+                            **🎯 Tipps:**
+                            - Scharfe Schere oder Bastelmesser verwenden
+                            - Falzlinie rillen, um das Falten zu erleichtern
+                            - In einer Box oder Mappe aufbewahren
+                            """,
+                "Español": """
+                            ### ✂️ **Cómo recortar y preparar las tarjetas:**
+                            
+                            **📏 Tamaños de tarjeta:** 
+                            - **Grandes:** 800×600 px (≈ 21×16 cm)
+                            - **Medianas:** 600×450 px (≈ 16×12 cm)  
+                            - **Pequeñas:** 400×300 px (≈ 10×8 cm)
+                            
+                            **🖨️ Impresión:**
+                            1. Usa papel A4 (210×297 mm)
+                            2. Configura la calidad de impresión en "Alta"
+                            3. Desactiva el escalado – imprime al 100%
+                            
+                            **✂️ Corte:**
+                            1. Recorta cada tarjeta a lo largo del borde azul
+                            2. Dóblala por la línea naranja
+                            3. Palabra al frente, definición detrás
+                            
+                            **💎 Plastificado (opcional):**
+                            - Utiliza fundas de 125 micras
+                            - Temperatura: 130–140°C
+                            - Tiempo: 30–60 segundos
+                            
+                            **🎯 Consejos:**
+                            - Usa tijeras afiladas o cúter
+                            - Marca la línea de pliegue para doblar más fácil
+                            - Guarda en una caja o carpeta
+                            """,
+                "Français": """
+                            ### ✂️ **Comment découper et préparer les fiches :**
+                            
+                            **📏 Tailles des fiches :** 
+                            - **Grandes :** 800×600 px (≈ 21×16 cm)
+                            - **Moyennes :** 600×450 px (≈ 16×12 cm)  
+                            - **Petites :** 400×300 px (≈ 10×8 cm)
+                            
+                            **🖨️ Impression :**
+                            1. Utilisez du papier A4 (210×297 mm)
+                            2. Réglez la qualité d'impression sur « Élevée »
+                            3. Désactivez l'échelle – imprimez à 100 %
+                            
+                            **✂️ Découpe :**
+                            1. Découpez chaque fiche le long du bord bleu
+                            2. Pliez en deux le long de la ligne orange
+                            3. Mot au recto, définition au verso
+                            
+                            **💎 Plastification (optionnel) :**
+                            - Utilisez des pochettes 125 microns
+                            - Température : 130–140°C
+                            - Temps : 30–60 secondes
+                            
+                            **🎯 Conseils :**
+                            - Utilisez des ciseaux bien affûtés ou un cutter
+                            - Marquez le pli pour faciliter le pliage
+                            - Rangez dans une boîte ou un classeur
+                            """,
+                "Українська": """
+                            ### ✂️ **Як вирізати та підготувати картки:**
+                            
+                            **📏 Розміри карток:** 
+                            - **Великі:** 800×600 px (≈ 21×16 см)
+                            - **Середні:** 600×450 px (≈ 16×12 см)  
+                            - **Малі:** 400×300 px (≈ 10×8 см)
+                            
+                            **🖨️ Друк:**
+                            1. Використовуйте папір A4 (210×297 мм)
+                            2. Установіть якість друку «Висока»
+                            3. Вимкніть масштабування – друкуйте у 100%
+                            
+                            **✂️ Вирізання:**
+                            1. Виріжте кожну картку по синій рамці
+                            2. Складіть навпіл по помаранчевій лінії
+                            3. Слово спереду, визначення ззаду
+                            
+                            **💎 Ламінування (за бажанням):**
+                            - Використовуйте плівку 125 мікрон
+                            - Температура: 130–140°C
+                            - Час: 30–60 секунд
+                            
+                            **🎯 Поради:**
+                            - Використовуйте гострі ножиці або канцелярський ніж
+                            - Намічайте лінію згину для зручності
+                            - Зберігайте у коробці або теці
+                            """,
+                "العربية": """
+                            ### ✂️ **كيفية قصّ وتحضير البطاقات:**
+                            
+                            **📏 أحجام البطاقات:** 
+                            - **كبيرة:** ‎800×600‎ بكسل (≈ ‎21×16‎ سم)
+                            - **متوسطة:** ‎600×450‎ بكسل (≈ ‎16×12‎ سم)  
+                            - **صغيرة:** ‎400×300‎ بكسل (≈ ‎10×8‎ سم)
+                            
+                            **🖨️ الطباعة:**
+                            1. استخدم ورق A4 ‏(210×297 مم)
+                            2. اضبط جودة الطباعة على «عالية»
+                            3. عطّل التحجيم – اطبع بنسبة ‎100%‎
+                            
+                            **✂️ القصّ:**
+                            1. اقصص كل بطاقة على طول الإطار الأزرق
+                            2. اطوِ البطاقة على طول الخط البرتقالي
+                            3. الكلمة في الأمام، والتعريف في الخلف
+                            
+                            **💎 التغطيس (اختياري):**
+                            - استخدم أظرف تغليف 125 ميكرون
+                            - الحرارة: ‎140–130°م
+                            - الزمن: ‎60–30 ثانية
+                            
+                            **🎯 نصائح:**
+                            - استخدم مقصًا حادًا أو سكينًا حرفيًا
+                            - يمكن وضع خط تكسيري لتسهيل الطي
+                            - خزّنها في صندوق أو ملف
+                            """,
+                "Arabski (libański dialekt)": """
+                            ### ✂️ **كيف تقصّ وتجهّز البطاقات:**
+                            
+                            **📏 أحجام البطاقات:** 
+                            - **كبيرة:** ‎800×600‎ بكسل
+                            - **متوسطة:** ‎600×450‎ بكسل  
+                            - **صغيرة:** ‎400×300‎ بكسل
+                            
+                            **🖨️ الطباعة:**
+                            1. ورق A4
+                            2. الجودة «عالية»
+                            3. اطبع ‎100%‎ بدون تكبير
+                            
+                            **✂️ القصّ:**
+                            1. قصّ على الخط الأزرق
+                            2. اطوي على الخط البرتقالي
+                            3. الكلمة قدّام والتعريف ورا
+                            
+                            **💎 تلبيس (اختياري):**
+                            - أكياس 125 ميكرون
+                            - حرارة 130–140°
+                            - وقت 30–60 ثانية
+                            
+                            **🎯 نصايح:**
+                            - مقصّ حاد أو كتر
+                            - اعمل خط طي لتسهيل الطوي
+                            - خزّنها بعلبة أو ملف
+                            """,
+                "中文": """
+                            ### ✂️ **如何裁切并准备学习卡片：**
+                            
+                            **📏 卡片尺寸：** 
+                            - **大：** 800×600 像素（≈ 21×16 厘米）
+                            - **中：** 600×450 像素（≈ 16×12 厘米）  
+                            - **小：** 400×300 像素（≈ 10×8 厘米）
+                            
+                            **🖨️ 打印：**
+                            1. 使用 A4 纸（210×297 毫米）
+                            2. 打印质量设为“高”
+                            3. 关闭缩放 — 按 100% 比例打印
+                            
+                            **✂️ 裁切：**
+                            1. 沿蓝色边框裁切每张卡片
+                            2. 沿橙色线对折
+                            3. 正面为单词，背面为释义
+                            
+                            **💎 覆膜（可选）：**
+                            - 使用 125 微米覆膜
+                            - 温度：130–140°C
+                            - 时间：30–60 秒
+                            
+                            **🎯 小贴士：**
+                            - 使用锋利的剪刀或美工刀
+                            - 可先压折线以便折叠
+                            - 存放在盒子或文件夹中
+                            """,
+                "日本語": """
+                            ### ✂️ **フラッシュカードの切り出しと準備方法：**
+                            
+                            **📏 カードサイズ：** 
+                            - **大：** 800×600 px（約 21×16 cm）
+                            - **中：** 600×450 px（約 16×12 cm）  
+                            - **小：** 400×300 px（約 10×8 cm）
+                            
+                            **🖨️ 印刷：**
+                            1. A4 用紙（210×297 mm）を使用
+                            2. 印刷品質を「高」に設定
+                            3. 拡大縮小を無効にし、100% で印刷
+                            
+                            **✂️ カット：**
+                            1. 青い枠に沿って各カードを切り取る
+                            2. オレンジの線に沿って二つ折り
+                            3. 表に単語、裏に定義
+                            
+                            **💎 ラミネート（任意）：**
+                            - 125 ミクロンのラミネートフィルム
+                            - 温度：130–140°C
+                            - 時間：30–60 秒
+                            
+                            **🎯 コツ：**
+                            - 切れ味の良いハサミやカッターを使用
+                            - 折りやすいように折り目をスジ入れ
+                            - 箱やフォルダーに保管
+                            """
+            },
+            "Select format": {
+                "Polski": "📁 Wybierz format:",
+                "English": "📁 Select format:",
+                "Deutsch": "📁 Format auswählen:",
+                "Українська": "📁 Виберіть формат:",
+                "Français": "📁 Sélectionner le format :",
+                "Español": "📁 Seleccionar formato:",
+                "العربية": "📁 اختر التنسيق:",
+                "Arabski (libański dialekt)": "📁 اختر الفورمات:",
+                "中文": "📁 选择格式：",
+                "日本語": "📁 形式を選択："
+            },
+            "Format - PNG best": {
+                "Polski": "PNG (najlepsza jakość)",
+                "English": "PNG (best quality)",
+                "Deutsch": "PNG (beste Qualität)",
+                "Українська": "PNG (найкраща якість)",
+                "Français": "PNG (meilleure qualité)",
+                "Español": "PNG (mejor calidad)",
+                "العربية": "PNG (أفضل جودة)",
+                "Arabski (libański dialekt)": "PNG (أفضل جودة)",
+                "中文": "PNG（最佳质量）",
+                "日本語": "PNG（最高品質）"
+            },
+            "Format - JPG smaller": {
+                "Polski": "JPG (mniejszy rozmiar)",
+                "English": "JPG (smaller size)",
+                "Deutsch": "JPG (kleinere Größe)",
+                "Українська": "JPG (менший розмір)",
+                "Français": "JPG (taille plus petite)",
+                "Español": "JPG (tamaño más pequeño)",
+                "العربية": "JPG (حجم أصغر)",
+                "Arabski (libański dialekt)": "JPG (حجم أصغر)",
+                "中文": "JPG（更小体积）",
+                "日本語": "JPG（小さいサイズ）"
+            },
+            "Format - PDF print": {
+                "Polski": "PDF (do drukowania)",
+                "English": "PDF (for printing)",
+                "Deutsch": "PDF (zum Drucken)",
+                "Українська": "PDF (для друку)",
+                "Français": "PDF (pour impression)",
+                "Español": "PDF (para imprimir)",
+                "العربية": "PDF (للطباعة)",
+                "Arabski (libański dialekt)": "PDF (للطباعة)",
+                "中文": "PDF（打印用）",
+                "日本語": "PDF（印刷用）"
+            },
+            "Quality": {
+                "Polski": "⭐ Jakość:",
+                "English": "⭐ Quality:",
+                "Deutsch": "⭐ Qualität:",
+                "Українська": "⭐ Якість:",
+                "Français": "⭐ Qualité :",
+                "Español": "⭐ Calidad:",
+                "العربية": "⭐ الجودة:",
+                "Arabski (libański dialekt)": "⭐ الجودة:",
+                "中文": "⭐ 质量：",
+                "日本語": "⭐ 品質："
+            },
+            "Quality - High": {
+                "Polski": "Wysoka",
+                "English": "High",
+                "Deutsch": "Hoch",
+                "Українська": "Висока",
+                "Français": "Élevée",
+                "Español": "Alta",
+                "العربية": "عالية",
+                "Arabski (libański dialekt)": "عالية",
+                "中文": "高",
+                "日本語": "高"
+            },
+            "Quality - Medium": {
+                "Polski": "Średnia",
+                "English": "Medium",
+                "Deutsch": "Mittel",
+                "Українська": "Середня",
+                "Français": "Moyenne",
+                "Español": "Media",
+                "العربية": "متوسطة",
+                "Arabski (libański dialekt)": "متوسطة",
+                "中文": "中",
+                "日本語": "中"
+            },
+            "Quality - Low": {
+                "Polski": "Niska",
+                "English": "Low",
+                "Deutsch": "Niedrig",
+                "Українська": "Низька",
+                "Français": "Faible",
+                "Español": "Baja",
+                "العربية": "منخفضة",
+                "Arabski (libański dialekt)": "منخفضة",
+                "中文": "低",
+                "日本語": "低"
+            },
+            "Flashcard size": {
+                "Polski": "📏 Rozmiar fiszek:",
+                "English": "📏 Flashcard size:",
+                "Deutsch": "📏 Kartengröße:",
+                "Українська": "📏 Розмір карток:",
+                "Français": "📏 Taille des fiches :",
+                "Español": "📏 Tamaño de las tarjetas:",
+                "العربية": "📏 حجم البطاقات:",
+                "Arabski (libański dialekt)": "📏 حجم البطاقات:",
+                "中文": "📏 卡片大小：",
+                "日本語": "📏 カードサイズ："
+            },
+            "Size - Large": {
+                "Polski": "Duże (800×600)",
+                "English": "Large (800×600)",
+                "Deutsch": "Groß (800×600)",
+                "Українська": "Великі (800×600)",
+                "Français": "Grandes (800×600)",
+                "Español": "Grandes (800×600)",
+                "العربية": "كبيرة (800×600)",
+                "Arabski (libański dialekt)": "كبيرة (800×600)",
+                "中文": "大（800×600）",
+                "日本語": "大（800×600）"
+            },
+            "Size - Medium": {
+                "Polski": "Średnie (600×450)",
+                "English": "Medium (600×450)",
+                "Deutsch": "Mittel (600×450)",
+                "Українська": "Середні (600×450)",
+                "Français": "Moyennes (600×450)",
+                "Español": "Medianas (600×450)",
+                "العربية": "متوسطة (600×450)",
+                "Arabski (libański dialekt)": "متوسطة (600×450)",
+                "中文": "中（600×450）",
+                "日本語": "中（600×450）"
+            },
+            "Size - Small": {
+                "Polski": "Małe (400×300)",
+                "English": "Small (400×300)",
+                "Deutsch": "Klein (400×300)",
+                "Українська": "Малі (400×300)",
+                "Français": "Petites (400×300)",
+                "Español": "Pequeñas (400×300)",
+                "العربية": "صغيرة (400×300)",
+                "Arabski (libański dialekt)": "صغيرة (400×300)",
+                "中文": "小（400×300）",
+                "日本語": "小（400×300）"
+            },
+            "Generated flashcards": {
+                "Polski": "Wygenerowane fiszki:",
+                "English": "Generated flashcards:",
+                "Deutsch": "Generierte Karteikarten:",
+                "Українська": "Згенеровані картки:",
+                "Français": "Fiches générées :",
+                "Español": "Tarjetas generadas:",
+                "العربية": "البطاقات المُنشأة:",
+                "Arabski (libański dialekt)": "الفلاش كاردز اللي نعملت:",
+                "中文": "生成的卡片：",
+                "日本語": "生成されたフラッシュカード："
+            },
+            "Download flashcards to print": {
+                "Polski": "Pobierz fiszki do wydruku",
+                "English": "Download flashcards to print",
+                "Deutsch": "Karteikarten zum Drucken herunterladen",
+                "Українська": "Завантажити картки для друку",
+                "Français": "Télécharger les fiches à imprimer",
+                "Español": "Descargar tarjetas para imprimir",
+                "العربية": "نزّل بطاقات للطباعة",
+                "Arabski (libański dialekt)": "نزّل بطاقات للطباعة",
+                "中文": "下载可打印的卡片",
+                "日本語": "印刷用カードをダウンロード"
+            },
+            "Download flashcards": {
+                "Polski": "📥 Pobierz fiszki",
+                "English": "📥 Download flashcards",
+                "Deutsch": "📥 Karteikarten herunterladen",
+                "Українська": "📥 Завантажити картки",
+                "Français": "📥 Télécharger les fiches",
+                "Español": "📥 Descargar tarjetas",
+                "العربية": "📥 نزّل البطاقات",
+                "Arabski (libański dialekt)": "📥 نزّل البطاقات",
+                "中文": "📥 下载卡片",
+                "日本語": "📥 カードをダウンロード"
+            },
+            "Success: pronunciation analyzed": {
+                "Polski": "✅ Analiza wymowy gotowa!",
+                "English": "✅ Pronunciation analysis ready!",
+                "Deutsch": "✅ Ausspracheanalyse fertig!",
+                "Українська": "✅ Аналіз вимови готовий!",
+                "Français": "✅ Analyse de la prononciation prête !",
+                "Español": "✅ ¡Análisis de pronunciación listo!",
+                "العربية": "✅ تحليل النطق جاهز!",
+                "Arabski (libański dialekt)": "✅ تحليل النطق جاهز!",
+                "中文": "✅ 发音分析已完成！",
+                "日本語": "✅ 発音分析の準備ができました！"
+            },
+            "Error: pronunciation not analyzed": {
+                "Polski": "❌ Nie udało się przeanalizować wymowy.",
+                "English": "❌ Failed to analyze pronunciation.",
+                "Deutsch": "❌ Aussprache konnte nicht analysiert werden.",
+                "Українська": "❌ Не вдалося проаналізувати вимову.",
+                "Français": "❌ Échec de l'analyse de la prononciation.",
+                "Español": "❌ No se pudo analizar la pronunciación.",
+                "العربية": "❌ فشل تحليل النطق.",
+                "Arabski (libański dialekt)": "❌ ما قدرنا نحلّل النطق.",
+                "中文": "❌ 无法分析发音。",
+                "日本語": "❌ 発音を分析できませんでした。"
+            },
+            "Error: pronunciation exception": {
+                "Polski": "❌ Błąd analizy wymowy:",
+                "English": "❌ Pronunciation analysis error:",
+                "Deutsch": "❌ Fehler bei der Ausspracheanalyse:",
+                "Українська": "❌ Помилка аналізу вимови:",
+                "Français": "❌ Erreur d'analyse de la prononciation :",
+                "Español": "❌ Error en el análisis de la pronunciación:",
+                "العربية": "❌ خطأ في تحليل النطق:",
+                "Arabski (libański dialekt)": "❌ خطأ بتحليل النطق:",
+                "中文": "❌ 发音分析错误：",
+                "日本語": "❌ 発音分析エラー："
+            },
+            "Warn: enter text to translate": {
+                "Polski": "⚠️ Wpisz tekst do przetłumaczenia.",
+                "English": "⚠️ Enter text to translate.",
+                "Deutsch": "⚠️ Text zum Übersetzen eingeben.",
+                "Українська": "⚠️ Введіть текст для перекладу.",
+                "Français": "⚠️ Entrez le texte à traduire.",
+                "Español": "⚠️ Introduce texto para traducir.",
+                "العربية": "⚠️ أدخل نصًا للترجمة.",
+                "Arabski (libański dialekt)": "⚠️ اكتب نص للترجمة.",
+                "中文": "⚠️ 输入要翻译的文本。",
+                "日本語": "⚠️ 翻訳するテキストを入力してください。"
+            },
+            "Warn: enter text to explain": {
+                "Polski": "Wpisz tekst do wyjaśnienia.",
+                "English": "Enter text for explanation.",
+                "Deutsch": "Text zur Erklärung eingeben.",
+                "Українська": "Введіть текст для пояснення.",
+                "Français": "Entrez le texte à expliquer.",
+                "Español": "Introduce texto para explicar.",
+                "العربية": "أدخل نصًا للتوضيح.",
+                "Arabski (libański dialekt)": "اكتب نص للتوضيح.",
+                "中文": "输入要解释的文本。",
+                "日本語": "説明するテキストを入力してください。"
+            },
+            "Warn: enter text to improve": {
+                "Polski": "Wpisz tekst do poprawy stylistycznej.",
+                "English": "Enter text to improve style.",
+                "Deutsch": "Text zur Stilverbesserung eingeben.",
+                "Українська": "Введіть текст для покращення стилю.",
+                "Français": "Entrez un texte à améliorer.",
+                "Español": "Introduce texto para mejorar el estilo.",
+                "العربية": "أدخل نصًا لتحسين الأسلوب.",
+                "Arabski (libański dialekt)": "اكتب نص للتجميل.",
+                "中文": "输入要改进风格的文本。",
+                "日本語": "スタイルを改善するテキストを入力してください。"
+            },
+            "Warn: enter text to generate flashcards": {
+                "Polski": "Wpisz tekst do wygenerowania fiszek.",
+                "English": "Enter text to generate flashcards.",
+                "Deutsch": "Text eingeben, um Karteikarten zu erstellen.",
+                "Українська": "Введіть текст для створення карток.",
+                "Français": "Entrez un texte pour générer des fiches.",
+                "Español": "Introduce texto para generar tarjetas.",
+                "العربية": "أدخل نصًا لإنشاء بطاقات.",
+                "Arabski (libański dialekt)": "اكتب نص لتوليد بطاقات.",
+                "中文": "输入文本以生成卡片。",
+                "日本語": "フラッシュカードを生成するテキストを入力してください。"
+            },
+            "Result": {
+                "Polski": "Wynik",
+                "English": "Result",
+                "Deutsch": "Ergebnis",
+                "Українська": "Результат",
+                "Français": "Résultat",
+                "Español": "Resultado",
+                "العربية": "النتيجة",
+                "Arabski (libański dialekt)": "النتيجة",
+                "中文": "结果",
+                "日本語": "結果"
+            },
+            "Translation": {
+                "Polski": "Tłumaczenie:",
+                "English": "Translation:",
+                "Deutsch": "Übersetzung:",
+                "Українська": "Переклад:",
+                "Français": "Traduction :",
+                "Español": "Traducción:",
+                "العربية": "الترجمة:",
+                "Arabski (libański dialekt)": "الترجمة:",
+                "中文": "翻译：",
+                "日本語": "翻訳："
+            },
+            "Listen translation": {
+                "Polski": "🔊 Odsłuchaj tłumaczenie",
+                "English": "🔊 Listen to translation",
+                "Deutsch": "🔊 Übersetzung anhören",
+                "Українська": "🔊 Прослухати переклад",
+                "Français": "🔊 Écouter la traduction",
+                "Español": "🔊 Escuchar la traducción",
+                "العربية": "🔊 استمع إلى الترجمة",
+                "Arabski (libański dialekt)": "🔊 اسمع الترجمة",
+                "中文": "🔊 听翻译",
+                "日本語": "🔊 翻訳を聴く"
+            },
+            "Pronunciation analysis": {
+                "Polski": "📊 Analiza wymowy:",
+                "English": "📊 Pronunciation analysis:",
+                "Deutsch": "📊 Ausspracheanalyse:",
+                "Українська": "📊 Аналіз вимови:",
+                "Français": "📊 Analyse de la prononciation :",
+                "Español": "📊 Análisis de pronunciación:",
+                "العربية": "📊 تحليل النطق:",
+                "Arabski (libański dialekt)": "📊 تحليل النطق:",
+                "中文": "📊 发音分析：",
+                "日本語": "📊 発音分析："
+            },
+            "From cache": {
+                "Polski": "📋 Wynik z cache",
+                "English": "📋 Result from cache",
+                "Deutsch": "📋 Ergebnis aus dem Cache",
+                "Українська": "📋 Результат з кешу",
+                "Français": "📋 Résultat depuis le cache",
+                "Español": "📋 Resultado desde caché",
+                "العربية": "📋 نتيجة من الذاكرة المؤقتة",
+                "Arabski (libański dialekt)": "📋 نتيجة من الكاش",
+                "中文": "📋 缓存结果",
+                "日本語": "📋 キャッシュからの結果"
+            },
+            "Flashcards image title": {
+                "Polski": "📚 FISZKI DO NAUKI",
+                "English": "📚 FLASHCARDS FOR LEARNING",
+                "Deutsch": "📚 LERN-KARTEIKARTEN",
+                "Українська": "📚 КАРТКИ ДЛЯ НАВЧАННЯ",
+                "Français": "📚 FICHES D'APPRENTISSAGE",
+                "Español": "📚 TARJETAS PARA APRENDER",
+                "العربية": "📚 بطاقات للتعلم",
+                "Arabski (libański dialekt)": "📚 بطاقات للتعلّم",
+                "中文": "📚 学习卡片",
+                "日本語": "📚 学習用フラッシュカード"
+            },
+            "Flashcard label - word": {
+                "Polski": "SŁÓWKO:",
+                "English": "WORD:",
+                "Deutsch": "WORT:",
+                "Українська": "СЛОВО:",
+                "Français": "MOT :",
+                "Español": "PALABRA:",
+                "العربية": "الكلمة:",
+                "Arabski (libański dialekt)": "الكلمة:",
+                "中文": "词语：",
+                "日本語": "単語："
+            },
+            "Flashcard label - definition": {
+                "Polski": "DEFINICJA:",
+                "English": "DEFINITION:",
+                "Deutsch": "DEFINITION:",
+                "Українська": "ВИЗНАЧЕННЯ:",
+                "Français": "DÉFINITION :",
+                "Español": "DEFINICIÓN:",
+                "العربية": "التعريف:",
+                "Arabski (libański dialekt)": "التعريف:",
+                "中文": "定义：",
+                "日本語": "定義："
+            },
+            "Flashcard label - example": {
+                "Polski": "PRZYKŁAD:",
+                "English": "EXAMPLE:",
+                "Deutsch": "BEISPIEL:",
+                "Українська": "ПРИКЛАД:",
+                "Français": "EXEMPLE :",
+                "Español": "EJEMPLO:",
+                "العربية": "مثال:",
+                "Arabski (libański dialekt)": "مثال:",
+                "中文": "例子：",
+                "日本語": "例："
+            },
+            "Success: mic recognized": {
+                "Polski": "✅ Nagrano i rozpoznano! Tekst dodano powyżej.",
+                "English": "✅ Recorded and recognized! Text added above.",
+                "Deutsch": "✅ Aufgenommen und erkannt! Text oben hinzugefügt.",
+                "Українська": "✅ Записано і розпізнано! Текст додано вище.",
+                "Français": "✅ Enregistré et reconnu ! Texte ajouté ci-dessus.",
+                "Español": "✅ Grabado y reconocido. Texto añadido arriba.",
+                "العربية": "✅ تم التسجيل والتعرف! تمت إضافة النص أعلاه.",
+                "Arabski (libański dialekt)": "✅ تسجّل وتعرّف! نضاف النص فوق.",
+                "中文": "✅ 已录制并识别！文本已添加在上方。",
+                "日本語": "✅ 録音して認識しました。上にテキストを追加しました。"
+            },
+            "Warn: mic not recognized": {
+                "Polski": "⚠️ Nie udało się rozpoznać mowy.",
+                "English": "⚠️ Could not recognize speech.",
+                "Deutsch": "⚠️ Sprache konnte nicht erkannt werden.",
+                "Українська": "⚠️ Не вдалося розпізнати мовлення.",
+                "Français": "⚠️ Impossible de reconnaître la parole.",
+                "Español": "⚠️ No se pudo reconocer el habla.",
+                "العربية": "⚠️ تعذّر التعرّف على الكلام.",
+                "Arabski (libański dialekt)": "⚠️ ما قدر يتعرّف على الحكي.",
+                "中文": "⚠️ 语音无法识别。",
+                "日本語": "⚠️ 音声を認識できませんでした。"
+            },
+            "Success: file recognized": {
+                "Polski": "✅ Wczytano i rozpoznano! Tekst dodano powyżej.",
+                "English": "✅ Loaded and recognized! Text added above.",
+                "Deutsch": "✅ Geladen und erkannt! Text oben hinzugefügt.",
+                "Українська": "✅ Завантажено і розпізнано! Текст додано вище.",
+                "Français": "✅ Chargé et reconnu ! Texte ajouté ci-dessus.",
+                "Español": "✅ Cargado y reconocido. Texto añadido arriba.",
+                "العربية": "✅ تم التحميل والتعرف! تمت إضافة النص أعلاه.",
+                "Arabski (libański dialekt)": "✅ نزل وتعرّف! نضاف النص فوق.",
+                "中文": "✅ 已加载并识别！文本已添加在上方。",
+                "日本語": "✅ 読み込み、認識しました。上にテキストを追加しました。"
+            },
+            "Warn: file not recognized": {
+                "Polski": "⚠️ Nie udało się rozpoznać mowy z pliku.",
+                "English": "⚠️ Could not recognize speech from file.",
+                "Deutsch": "⚠️ Sprache aus der Datei konnte nicht erkannt werden.",
+                "Українська": "⚠️ Не вдалося розпізнати мовлення з файлу.",
+                "Français": "⚠️ Impossible de reconnaître la parole à partir du fichier.",
+                "Español": "⚠️ No se pudo reconocer el habla desde el archivo.",
+                "العربية": "⚠️ تعذّر التعرّف على الكلام من الملف.",
+                "Arabski (libański dialekt)": "⚠️ ما قدر يتعرّف على الحكي من الملف.",
+                "中文": "⚠️ 无法从文件中识别语音。",
+                "日本語": "⚠️ ファイルから音声を認識できませんでした。"
+            },
+            "Success: words generated": {
+                "Polski": "✅ Wygenerowano słowa do ćwiczenia!",
+                "English": "✅ Words for practice generated!",
+                "Deutsch": "✅ Wörter zum Üben generiert!",
+                "Українська": "✅ Згенеровано слова для практики!",
+                "Français": "✅ Mots pour la pratique générés !",
+                "Español": "✅ Palabras para practicar generadas!",
+                "العربية": "✅ تم توليد كلمات للتمرين!",
+                "Arabski (libański dialekt)": "✅ تولّدوا كلمات للتمرين!",
+                "中文": "✅ 已生成练习单词！",
+                "日本語": "✅ 練習用の単語を生成しました！"
+            },
+            "Error: words not generated": {
+                "Polski": "❌ Nie udało się wygenerować słów do ćwiczenia.",
+                "English": "❌ Failed to generate words for practice.",
+                "Deutsch": "❌ Wörter zum Üben konnten nicht generiert werden.",
+                "Українська": "❌ Не вдалося згенерувати слова для практики.",
+                "Français": "❌ Échec de génération des mots pour la pratique.",
+                "Español": "❌ No se pudieron generar palabras para practicar.",
+                "العربية": "❌ فشل توليد كلمات للتمرين.",
+                "Arabski (libański dialekt)": "❌ ما قدرنا نولّد كلمات للتمرين.",
+                "中文": "❌ 生成练习单词失败。",
+                "日本語": "❌ 練習用の単語を生成できませんでした。"
+            },
+            "Error: words generation exception": {
+                "Polski": "❌ Błąd generowania słów:",
+                "English": "❌ Error generating words:",
+                "Deutsch": "❌ Fehler beim Generieren von Wörtern:",
+                "Українська": "❌ Помилка генерації слів:",
+                "Français": "❌ Erreur lors de la génération des mots :",
+                "Español": "❌ Error al generar palabras:",
+                "العربية": "❌ خطأ في توليد الكلمات:",
+                "Arabski (libański dialekt)": "❌ خطأ بتوليد الكلمات:",
+                "中文": "❌ 生成单词时出错：",
+                "日本語": "❌ 単語生成エラー："
+            },
+            "Clear practice result": {
+                "Polski": "🧹 Wyczyść wynik ćwiczeń",
+                "English": "🧹 Clear practice result",
+                "Deutsch": "🧹 Übungsergebnis löschen",
+                "Українська": "🧹 Очистити результат вправи",
+                "Français": "🧹 Effacer le résultat d'entraînement",
+                "Español": "🧹 Limpiar resultado de práctica",
+                "العربية": "🧹 مسح نتيجة التمرين",
+                "Arabski (libański dialekt)": "🧹 امسح نتيجة التمرين",
+                "中文": "🧹 清除练习结果",
+                "日本語": "🧹 練習結果をクリア"
             },
             "Wpisz wiadomość do przetłumaczenia": {
                 "Polski": "✍️ Wpisz wiadomość do przetłumaczenia",
@@ -571,6 +1448,579 @@ class Labels:
                 "中文": "界面语言",
                 "日本語": "インターフェースの言語"
             }
+            ,
+            "Ustawienia": {
+                "Polski": "⚙️ Ustawienia",
+                "English": "⚙️ Settings",
+                "Deutsch": "⚙️ Einstellungen",
+                "Українська": "⚙️ Налаштування",
+                "Français": "⚙️ Paramètres",
+                "Español": "⚙️ Configuración",
+                "العربية": "⚙️ الإعدادات",
+                "Arabski (libański dialekt)": "⚙️ الإعدادات",
+                "中文": "⚙️ 设置",
+                "日本語": "⚙️ 設定"
+            },
+            "Język interfejsu": {
+                "Polski": "🌐 Język interfejsu",
+                "English": "🌐 Interface language",
+                "Deutsch": "🌐 Interface-Sprache",
+                "Українська": "🌐 Мова інтерфейсу",
+                "Français": "🌐 Langue de l'interface",
+                "Español": "🌐 Idioma de la interfaz",
+                "العربية": "🌐 لغة الواجهة",
+                "Arabski (libański dialekt)": "🌐 لغة الواجهة (لبناني)",
+                "中文": "🌐 界面语言",
+                "日本語": "🌐 インターフェースの言語"
+            },
+            "Motyw": {
+                "Polski": "🎨 Motyw",
+                "English": "🎨 Theme",
+                "Deutsch": "🎨 Thema",
+                "Українська": "🎨 Тема",
+                "Français": "🎨 Thème",
+                "Español": "🎨 Tema",
+                "العربية": "🎨 السمة",
+                "Arabski (libański dialekt)": "🎨 السمة",
+                "中文": "🎨 主题",
+                "日本語": "🎨 テーマ"
+            },
+            "Kolor tła": {
+                "Polski": "Kolor tła",
+                "English": "Background color",
+                "Deutsch": "Hintergrundfarbe",
+                "Українська": "Колір тла",
+                "Français": "Couleur d'arrière-plan",
+                "Español": "Color de fondo",
+                "العربية": "لون الخلفية",
+                "Arabski (libański dialekt)": "لون الخلفية",
+                "中文": "背景颜色",
+                "日本語": "背景色"
+            },
+            "Jasny": {
+                "Polski": "Jasny",
+                "English": "Light",
+                "Deutsch": "Hell",
+                "Українська": "Світлий",
+                "Français": "Clair",
+                "Español": "Claro",
+                "العربية": "فاتح",
+                "Arabski (libański dialekt)": "فاتح",
+                "中文": "浅色",
+                "日本語": "ライト"
+            },
+            "Ciemny": {
+                "Polski": "Ciemny",
+                "English": "Dark",
+                "Deutsch": "Dunkel",
+                "Українська": "Темний",
+                "Français": "Sombre",
+                "Español": "Oscuro",
+                "العربية": "داكن",
+                "Arabski (libański dialekt)": "داكن",
+                "中文": "深色",
+                "日本語": "ダーク"
+            },
+            "O aplikacji": {
+                "Polski": "ℹ️ O aplikacji",
+                "English": "ℹ️ About the app",
+                "Deutsch": "ℹ️ Über die App",
+                "Українська": "ℹ️ Про застосунок",
+                "Français": "ℹ️ À propos de l'app",
+                "Español": "ℹ️ Acerca de la app",
+                "العربية": "ℹ️ حول التطبيق",
+                "Arabski (libański dialekt)": "ℹ️ عن التطبيق",
+                "中文": "ℹ️ 关于应用",
+                "日本語": "ℹ️ アプリについて"
+            },
+            "Ćwicz wymowę": {
+                "Polski": "🎤 Ćwicz wymowę",
+                "English": "🎤 Practice pronunciation",
+                "Deutsch": "🎤 Aussprache üben",
+                "Українська": "🎤 Тренуйте вимову",
+                "Français": "🎤 Exercer la prononciation",
+                "Español": "🎤 Practicar la pronunciación",
+                "العربية": "🎤 تدرب على النطق",
+                "Arabski (libański dialekt)": "🎤 تمرن على النطق",
+                "中文": "🎤 练习发音",
+                "日本語": "🎤 発音練習"
+            },
+            "Język do ćwiczenia": {
+                "Polski": "🌍 Język do ćwiczenia",
+                "English": "🌍 Language to practice",
+                "Deutsch": "🌍 Übungssprache",
+                "Українська": "🌍 Мова для практики",
+                "Français": "🌍 Langue à pratiquer",
+                "Español": "🌍 Idioma para practicar",
+                "العربية": "🌍 اللغة للممارسة",
+                "Arabski (libański dialekt)": "🌍 اللغة للتدريب",
+                "中文": "🌍 练习语言",
+                "日本語": "🌍 練習する言語"
+            },
+            "Typ ćwiczenia": {
+                "Polski": "🎯 Typ ćwiczenia",
+                "English": "🎯 Exercise type",
+                "Deutsch": "🎯 Übungstyp",
+                "Українська": "🎯 Тип вправи",
+                "Français": "🎯 Type d'exercice",
+                "Español": "🎯 Tipo de ejercicio",
+                "العربية": "🎯 نوع التمرين",
+                "Arabski (libański dialekt)": "🎯 نوع التمرين",
+                "中文": "🎯 练习类型",
+                "日本語": "🎯 練習の種類"
+            },
+            "Generuj słowa do ćwiczenia": {
+                "Polski": "🎲 Generuj słowa do ćwiczenia",
+                "English": "🎲 Generate words to practice",
+                "Deutsch": "🎲 Wörter zum Üben generieren",
+                "Українська": "🎲 Згенерувати слова для практики",
+                "Français": "🎲 Générer des mots à pratiquer",
+                "Español": "🎲 Generar palabras para practicar",
+                "العربية": "🎲 أنشئ كلمات للتمرن",
+                "Arabski (libański dialekt)": "🎲 ولّد كلمات للتدريب",
+                "中文": "🎲 生成练习单词",
+                "日本語": "🎲 練習用の単語を生成"
+            },
+            "Nagraj wymowę": {
+                "Polski": "🎤 Nagraj wymowę",
+                "English": "🎤 Record pronunciation",
+                "Deutsch": "🎤 Aussprache aufnehmen",
+                "Українська": "🎤 Запишіть вимову",
+                "Français": "🎤 Enregistrer la prononciation",
+                "Español": "🎤 Grabar pronunciación",
+                "العربية": "🎤 سجّل النطق",
+                "Arabski (libański dialekt)": "🎤 سجّل النطق",
+                "中文": "🎤 录制发音",
+                "日本語": "🎤 発音を録音"
+            },
+            "Rozpoznano wymowę": {
+                "Polski": "✅ Rozpoznano wymowę",
+                "English": "✅ Pronunciation recognized",
+                "Deutsch": "✅ Aussprache erkannt",
+                "Українська": "✅ Вимову розпізнано",
+                "Français": "✅ Prononciation reconnue",
+                "Español": "✅ Pronunciación reconocida",
+                "العربية": "✅ تم التعرف على النطق",
+                "Arabski (libański dialekt)": "✅ تم التعرف على النطق",
+                "中文": "✅ 已识别发音",
+                "日本語": "✅ 発音が認識されました"
+            },
+            "Ostatnia rozpoznana wypowiedź:": {
+                "Polski": "🔎 Ostatnia rozpoznana wypowiedź:",
+                "English": "🔎 Last recognized utterance:",
+                "Deutsch": "🔎 Zuletzt erkannte Äußerung:",
+                "Українська": "🔎 Останнє розпізнане висловлювання:",
+                "Français": "🔎 Dernière énonciation reconnue :",
+                "Español": "🔎 Última intervención reconocida:",
+                "العربية": "🔎 آخر جملة تم التعرف عليها:",
+                "Arabski (libański dialekt)": "🔎 آخر جملة تم التعرف عليها:",
+                "中文": "🔎 最近识别的话语：",
+                "日本語": "🔎 最後に認識された発話："
+            },
+            "Analizuj wymowę": {
+                "Polski": "🔍 Analizuj wymowę",
+                "English": "🔍 Analyze pronunciation",
+                "Deutsch": "🔍 Aussprache analysieren",
+                "Українська": "🔍 Проаналізувати вимову",
+                "Français": "🔍 Analyser la prononciation",
+                "Español": "🔍 Analizar pronunciación",
+                "العربية": "🔍 حلل النطق",
+                "Arabski (libański dialekt)": "🔍 حلل النطق",
+                "中文": "🔍 分析发音",
+                "日本語": "🔍 発音を分析"
+            },
+            "Liczba requestów": {
+                "Polski": "📊 Liczba requestów",
+                "English": "📊 Number of requests",
+                "Deutsch": "📊 Anzahl der Anfragen",
+                "Українська": "📊 Кількість запитів",
+                "Français": "📊 Nombre de requêtes",
+                "Español": "📊 Número de solicitudes",
+                "العربية": "📊 عدد الطلبات",
+                "Arabski (libański dialekt)": "📊 عدد الطلبات",
+                "中文": "📊 请求数量",
+                "日本語": "📊 リクエスト数"
+            },
+            "Popraw błędy przed tłumaczeniem": {
+                "Polski": "🔧 Popraw błędy przed tłumaczeniem",
+                "English": "🔧 Correct errors before translating",
+                "Deutsch": "🔧 Fehler vor der Übersetzung korrigieren",
+                "Українська": "🔧 Виправити помилки перед перекладом",
+                "Français": "🔧 Corriger les erreurs avant la traduction",
+                "Español": "🔧 Corregir errores antes de traducir",
+                "العربية": "🔧 صحّح الأخطاء قبل الترجمة",
+                "Arabski (libański dialekt)": "🔧 صحّح الأخطاء قبل الترجمة",
+                "中文": "🔧 翻译前纠正错误",
+                "日本語": "🔧 翻訳前にエラーを修正"
+            },
+            "Help: Popraw błędy przed tłumaczeniem": {
+                "Polski": "Popraw błędy gramatyczne i stylistyczne w oryginalnym języku przed tłumaczeniem",
+                "English": "Correct grammar and style in the original language before translating",
+                "Deutsch": "Korrigiere Grammatik und Stil in der Ausgangssprache vor der Übersetzung",
+                "Українська": "Виправити граматику і стиль в оригінальній мові перед перекладом",
+                "Français": "Corriger la grammaire et le style dans la langue d'origine avant la traduction",
+                "Español": "Corregir gramática y estilo en el idioma original antes de traducir",
+                "العربية": "صحّح القواعد والأسلوب في اللغة الأصلية قبل الترجمة",
+                "Arabski (libański dialekt)": "صحّح القواعد والأسلوب في اللغة الأصلية قبل الترجمة",
+                "中文": "在翻译之前先在原始语言中纠正语法和风格",
+                "日本語": "翻訳前に原文の文法とスタイルを修正する"
+            },
+            "Placeholder: tłumaczenie": {
+                "Polski": "Wpisz tutaj tekst do przetłumaczenia...",
+                "English": "Enter text here to translate...",
+                "Deutsch": "Text hier zum Übersetzen eingeben...",
+                "Українська": "Введіть тут текст для перекладу...",
+                "Français": "Saisissez ici le texte à traduire...",
+                "Español": "Introduce aquí el texto a traducir...",
+                "العربية": "أدخل هنا النص للترجمة...",
+                "Arabski (libański dialekt)": "اكتب هون النص للترجمة...",
+                "中文": "在此输入要翻译的文本...",
+                "日本語": "ここに翻訳するテキストを入力..."
+            },
+            "Placeholder: wyjaśnienia": {
+                "Polski": "Wpisz tutaj tekst do wyjaśnienia...",
+                "English": "Enter text here for explanation...",
+                "Deutsch": "Text hier zur Erklärung eingeben...",
+                "Українська": "Введіть тут текст для пояснення...",
+                "Français": "Saisissez ici le texte à expliquer...",
+                "Español": "Introduce aquí el texto para explicar...",
+                "العربية": "أدخل هنا نصاً لشرحه...",
+                "Arabski (libański dialekt)": "اكتب هون نص للتوضيح...",
+                "中文": "在此输入要解释的文本...",
+                "日本語": "ここに説明するテキストを入力..."
+            },
+            "Placeholder: stylistyka": {
+                "Polski": "Wpisz tutaj tekst do poprawy...",
+                "English": "Enter text here to improve...",
+                "Deutsch": "Text hier zur Verbesserung eingeben...",
+                "Українська": "Введіть тут текст для покращення...",
+                "Français": "Saisissez ici le texte à améliorer...",
+                "Español": "Introduce aquí el texto a mejorar...",
+                "العربية": "أدخل هنا نصاً لتحسينه...",
+                "Arabski (libański dialekt)": "اكتب هون نص للتجميل...",
+                "中文": "在此输入要改进的文本...",
+                "日本語": "ここに改善するテキストを入力..."
+            },
+            "Placeholder: fiszki": {
+                "Polski": "Wpisz tutaj tekst do wygenerowania fiszek...",
+                "English": "Enter text here to generate flashcards...",
+                "Deutsch": "Text hier eingeben, um Karteikarten zu erstellen...",
+                "Українська": "Введіть тут текст для створення карток...",
+                "Français": "Saisissez ici le texte pour générer des fiches...",
+                "Español": "Introduce aquí el texto para generar tarjetas...",
+                "العربية": "أدخل هنا نصاً لإنشاء بطاقات...",
+                "Arabski (libański dialekt)": "اكتب هون نص لتوليد بطاقات...",
+                "中文": "在此输入文本以生成卡片...",
+                "日本語": "ここにカードを生成するテキストを入力..."
+            },
+            "Opt - Słowa podstawowe": {
+                "Polski": "Słowa podstawowe",
+                "English": "Basic words",
+                "Deutsch": "Grundwörter",
+                "Українська": "Базові слова",
+                "Français": "Mots de base",
+                "Español": "Palabras básicas",
+                "العربية": "كلمات أساسية",
+                "Arabski (libański dialekt)": "كلمات أساسية",
+                "中文": "基础词汇",
+                "日本語": "基本単語"
+            },
+            "Opt - Zwroty codzienne": {
+                "Polski": "Zwroty codzienne",
+                "English": "Daily phrases",
+                "Deutsch": "Alltägliche Redewendungen",
+                "Українська": "Повсякденні фрази",
+                "Français": "Phrases quotidiennes",
+                "Español": "Frases cotidianas",
+                "العربية": "عبارات يومية",
+                "Arabski (libański dialekt)": "عبارات يومية",
+                "中文": "日常用语",
+                "日本語": "日常フレーズ"
+            },
+            "Opt - Liczby": {
+                "Polski": "Liczby",
+                "English": "Numbers",
+                "Deutsch": "Zahlen",
+                "Українська": "Числа",
+                "Français": "Nombres",
+                "Español": "Números",
+                "العربية": "الأرقام",
+                "Arabski (libański dialekt)": "الأرقام",
+                "中文": "数字",
+                "日本語": "数字"
+            },
+            "Opt - Kolory": {
+                "Polski": "Kolory",
+                "English": "Colors",
+                "Deutsch": "Farben",
+                "Українська": "Кольори",
+                "Français": "Couleurs",
+                "Español": "Colores",
+                "العربية": "الألوان",
+                "Arabski (libański dialekt)": "الألوان",
+                "中文": "颜色",
+                "日本語": "色"
+            },
+            "Opt - Członkowie rodziny": {
+                "Polski": "Członkowie rodziny",
+                "English": "Family members",
+                "Deutsch": "Familienmitglieder",
+                "Українська": "Члени родини",
+                "Français": "Membres de la famille",
+                "Español": "Miembros de la familia",
+                "العربية": "أفراد العائلة",
+                "Arabski (libański dialekt)": "أفراد العيلة",
+                "中文": "家庭成员",
+                "日本語": "家族"
+            },
+            "About content": {
+                "Polski": """
+        **Tłumacz Wielojęzyczny** to zaawansowane narzędzie do:
+        - 🌍 Tłumaczenia tekstów
+        - 📚 Wyjaśniania gramatyki
+        - ✨ Poprawy stylistyki
+        - 🔧 Korekcji błędów
+        - 📖 Tworzenia fiszek
+        - 🎤 Ćwiczenia wymowy
+        """,
+                "English": """
+        **Multilingual Translator** helps you:
+        - 🌍 Translate texts
+        - 📚 Explain vocabulary and grammar
+        - ✨ Improve style (polish your text)
+        - 🔧 Correct errors
+        - 📖 Create flashcards
+        - 🎤 Practice pronunciation
+        """,
+                "Deutsch": """
+        **Mehrsprachiger Übersetzer** – Funktionen:
+        - 🌍 Texte übersetzen
+        - 📚 Wortschatz und Grammatik erklären
+        - ✨ Stil verbessern
+        - 🔧 Fehler korrigieren
+        - 📖 Karteikarten erstellen
+        - 🎤 Aussprache üben
+        """,
+                "Українська": """
+        **Багатомовний перекладач** допомагає:
+        - 🌍 Перекладати тексти
+        - 📚 Пояснювати лексику та граматику
+        - ✨ Покращувати стиль
+        - 🔧 Виправляти помилки
+        - 📖 Створювати картки
+        - 🎤 Тренувати вимову
+        """,
+                "Français": """
+        **Traducteur multilingue** permet de :
+        - 🌍 Traduire des textes
+        - 📚 Expliquer vocabulaire et grammaire
+        - ✨ Améliorer le style
+        - 🔧 Corriger les erreurs
+        - 📖 Créer des fiches
+        - 🎤 S'entraîner à la prononciation
+        """,
+                "Español": """
+        **Traductor multilingüe** te ayuda a:
+        - 🌍 Traducir textos
+        - 📚 Explicar vocabulario y gramática
+        - ✨ Mejorar el estilo
+        - 🔧 Corregir errores
+        - 📖 Crear tarjetas
+        - 🎤 Practicar la pronunciación
+        """,
+                "العربية": """
+        **مترجم متعدد اللغات** يساعدك على:
+        - 🌍 ترجمة النصوص
+        - 📚 شرح المفردات والقواعد
+        - ✨ تحسين الأسلوب
+        - 🔧 تصحيح الأخطاء
+        - 📖 إنشاء بطاقات تعليمية
+        - 🎤 التدرب على النطق
+        """,
+                "Arabski (libański dialekt)": """
+        **مترجم متعدد اللغات** بيساعدك:
+        - 🌍 تترجم نصوص
+        - 📚 تشرح كلمات وقواعد
+        - ✨ تحسن الأسلوب
+        - 🔧 تصحّح أخطاء
+        - 📖 تعمل فلاش كاردز
+        - 🎤 تتمرن على النطق
+        """,
+                "中文": """
+        **多语言翻译器** 帮助你：
+        - 🌍 翻译文本
+        - 📚 解释词汇和语法
+        - ✨ 改进文风
+        - 🔧 纠正错误
+        - 📖 创建学习卡片
+        - 🎤 练习发音
+        """,
+                "日本語": """
+        **多言語翻訳ツール** は次のことができます：
+        - 🌍 テキストの翻訳
+        - 📚 語彙と文法の説明
+        - ✨ スタイルの改善
+        - 🔧 誤りの修正
+        - 📖 フラッシュカードの作成
+        - 🎤 発音練習
+        """,
+            },
+            "Style caption": {
+                "Polski": "Nie tłumaczy — tylko poprawa stylu i gramatyki w tym samym języku.",
+                "English": "No translation — improves style and grammar in the same language.",
+                "Deutsch": "Keine Übersetzung — verbessert Stil und Grammatik in derselben Sprache.",
+                "Українська": "Без перекладу — лише покращення стилю та граматики тією ж мовою.",
+                "Français": "Pas de traduction — améliore le style et la grammaire dans la même langue.",
+                "Español": "Sin traducción: mejora el estilo y la gramática en el mismo idioma.",
+                "العربية": "لا ترجمة — تحسين الأسلوب والقواعد باللغة نفسها.",
+                "Arabski (libański dialekt)": "ما في ترجمة — بس تحسين الأسلوب والقواعد بنفس اللغة.",
+                "中文": "不进行翻译——仅在同一语言中改进风格和语法。",
+                "日本語": "翻訳はしません。同じ言語で文体と文法のみ改善します。"
+            },
+            "API stats": {
+                "Polski": "📊 Statystyki użycia API",
+                "English": "📊 API usage stats",
+                "Deutsch": "📊 API-Nutzungsstatistiken",
+                "Українська": "📊 Статистика використання API",
+                "Français": "📊 Statistiques d'utilisation de l'API",
+                "Español": "📊 Estadísticas de uso de la API",
+                "العربية": "📊 إحصائيات استخدام API",
+                "Arabski (libański dialekt)": "📊 إحصائيات استخدام API",
+                "中文": "📊 API 使用统计",
+                "日本語": "📊 API 使用統計"
+            },
+            "Total tokens": {
+                "Polski": "🔢 Łącznie tokenów",
+                "English": "🔢 Total tokens",
+                "Deutsch": "🔢 Gesamtanzahl Tokens",
+                "Українська": "🔢 Всього токенів",
+                "Français": "🔢 Total de jetons",
+                "Español": "🔢 Tokens totales",
+                "العربية": "🔢 إجمالي التوكنات",
+                "Arabski (libański dialekt)": "🔢 إجمالي التوكنات",
+                "中文": "🔢 令牌总数",
+                "日本語": "🔢 トークン合計"
+            },
+            "Total cost": {
+                "Polski": "💰 Łączny koszt",
+                "English": "💰 Total cost",
+                "Deutsch": "💰 Gesamtkosten",
+                "Українська": "💰 Загальна вартість",
+                "Français": "💰 Coût total",
+                "Español": "💰 Costo total",
+                "العربية": "💰 التكلفة الإجمالية",
+                "Arabski (libański dialekt)": "💰 التكلفة الإجمالية",
+                "中文": "💰 总成本",
+                "日本語": "💰 総コスト"
+            },
+            "Last usage": {
+                "Polski": "📈 Ostatnie użycie:",
+                "English": "📈 Last usage:",
+                "Deutsch": "📈 Letzte Nutzung:",
+                "Українська": "📈 Останнє використання:",
+                "Français": "📈 Dernière utilisation :",
+                "Español": "📈 Último uso:",
+                "العربية": "📈 آخر استخدام:",
+                "Arabski (libański dialekt)": "📈 آخر استخدام:",
+                "中文": "📈 最近使用：",
+                "日本語": "📈 直近の利用："
+            },
+            "Model label": {
+                "Polski": "Model:",
+                "English": "Model:",
+                "Deutsch": "Modell:",
+                "Українська": "Модель:",
+                "Français": "Modèle :",
+                "Español": "Modelo:",
+                "العربية": "النموذج:",
+                "Arabski (libański dialekt)": "الموديل:",
+                "中文": "模型：",
+                "日本語": "モデル："
+            },
+            "Input tokens": {
+                "Polski": "Tokeny wejściowe:",
+                "English": "Input tokens:",
+                "Deutsch": "Eingabe-Tokens:",
+                "Українська": "Вхідні токени:",
+                "Français": "Jetons d'entrée :",
+                "Español": "Tokens de entrada:",
+                "العربية": "التوكنات الداخلة:",
+                "Arabski (libański dialekt)": "التوكنات الداخلة:",
+                "中文": "输入令牌：",
+                "日本語": "入力トークン："
+            },
+            "Output tokens": {
+                "Polski": "Tokeny wyjściowe:",
+                "English": "Output tokens:",
+                "Deutsch": "Ausgabe-Tokens:",
+                "Українська": "Вихідні токени:",
+                "Français": "Jetons de sortie :",
+                "Español": "Tokens de salida:",
+                "العربية": "التوكنات الخارجة:",
+                "Arabski (libański dialekt)": "التوكنات الخارجة:",
+                "中文": "输出令牌：",
+                "日本語": "出力トークン："
+            },
+            "Cost label": {
+                "Polski": "Koszt:",
+                "English": "Cost:",
+                "Deutsch": "Kosten:",
+                "Українська": "Вартість:",
+                "Français": "Coût :",
+                "Español": "Costo:",
+                "العربية": "التكلفة:",
+                "Arabski (libański dialekt)": "الكلفة:",
+                "中文": "成本：",
+                "日本語": "コスト："
+            },
+            "Cost history": {
+                "Polski": "📊 Historia kosztów",
+                "English": "📊 Cost history",
+                "Deutsch": "📊 Kostenverlauf",
+                "Українська": "📊 Історія витрат",
+                "Français": "📊 Historique des coûts",
+                "Español": "📊 Historial de costos",
+                "العربية": "📊 سجلّ التكلفة",
+                "Arabski (libański dialekt)": "📊 سجلّ التكلفة",
+                "中文": "📊 成本历史",
+                "日本語": "📊 コスト履歴"
+            },
+            "Reset stats": {
+                "Polski": "🔄 Resetuj statystyki",
+                "English": "🔄 Reset stats",
+                "Deutsch": "🔄 Statistiken zurücksetzen",
+                "Українська": "🔄 Скинути статистику",
+                "Français": "🔄 Réinitialiser les statistiques",
+                "Español": "🔄 Restablecer estadísticas",
+                "العربية": "🔄 إعادة تعيين الإحصائيات",
+                "Arabski (libański dialekt)": "🔄 صفّر الإحصائيات",
+                "中文": "🔄 重置统计",
+                "日本語": "🔄 統計をリセット"
+            },
+            "Footer tagline": {
+                "Polski": "🌍 <strong>Tłumacz Wielojęzyczny</strong> - Twoje narzędzie do nauki języków",
+                "English": "🌍 <strong>Multilingual Translator</strong> - Your language learning tool",
+                "Deutsch": "🌍 <strong>Mehrsprachiger Übersetzer</strong> – Dein Sprachlerntool",
+                "Українська": "🌍 <strong>Багатомовний перекладач</strong> – Твій інструмент для вивчення мов",
+                "Français": "🌍 <strong>Traducteur multilingue</strong> – Votre outil d'apprentissage des langues",
+                "Español": "🌍 <strong>Traductor multilingüe</strong> – Tu herramienta para aprender idiomas",
+                "العربية": "🌍 <strong>مترجم متعدد اللغات</strong> – أداتك لتعلم اللغات",
+                "Arabski (libański dialekt)": "🌍 <strong>مترجم متعدد اللغات</strong> – أداتك لتعلّم اللغات",
+                "中文": "🌍 <strong>多语言翻译器</strong> — 你的语言学习工具",
+                "日本語": "🌍 <strong>多言語翻訳ツール</strong> — あなたの語学学習ツール"
+            },
+            "Footer made with": {
+                "Polski": "Made with ❤️ using Streamlit & OpenAI",
+                "English": "Made with ❤️ using Streamlit & OpenAI",
+                "Deutsch": "Mit ❤️ erstellt mit Streamlit & OpenAI",
+                "Українська": "Зроблено з ❤️ на Streamlit і OpenAI",
+                "Français": "Fait avec ❤️ grâce à Streamlit & OpenAI",
+                "Español": "Hecho con ❤️ usando Streamlit y OpenAI",
+                "العربية": "صُنع بحب ❤️ باستخدام Streamlit و OpenAI",
+                "Arabski (libański dialekt)": "معمول بمحبة ❤️ باستعمال Streamlit و OpenAI",
+                "中文": "用 ❤️ 使用 Streamlit 和 OpenAI 制作",
+                "日本語": "Streamlit と OpenAI で ❤️ を込めて作成"
+            }
         }
 
 # Lista języków do tłumaczenia
@@ -651,7 +2101,20 @@ class OpenAIHandler:
             input_text = " ".join([msg["content"] for msg in messages])
             input_tokens = count_tokens(input_text, model)
             
-            with st.spinner("🤔 Przetwarzam..."):
+            # i18n spinner
+            spinner_label = {
+                "Polski": "🤔 Przetwarzam...",
+                "English": "🤔 Processing...",
+                "Deutsch": "🤔 Verarbeite...",
+                "Українська": "🤔 Обробляю...",
+                "Français": "🤔 Traitement...",
+                "Español": "🤔 Procesando...",
+                "العربية": "🤔 جارٍ المعالجة...",
+                "Arabski (libański dialekt)": "🤔 عم بشتغل...",
+                "中文": "🤔 正在处理...",
+                "日本語": "🤔 処理中..."
+            }.get(st.session_state.get("interface_lang", "Polski"), "🤔 Processing...")
+            with st.spinner(spinner_label):
                 response = self.client.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -680,7 +2143,19 @@ class OpenAIHandler:
             self._rate_limit_delay()
             bio = io.BytesIO(file_bytes)
             bio.name = filename
-            with st.spinner("🎤 Rozpoznaję mowę..."):
+            t_spinner_label = {
+                "Polski": "🎤 Rozpoznaję mowę...",
+                "English": "🎤 Recognizing speech...",
+                "Deutsch": "🎤 Spracherkennung...",
+                "Українська": "🎤 Розпізнаю мовлення...",
+                "Français": "🎤 Reconnaissance vocale...",
+                "Español": "🎤 Reconociendo voz...",
+                "العربية": "🎤 يتعرف على الكلام...",
+                "Arabski (libański dialekt)": "🎤 عم يتعرّف عالحكي...",
+                "中文": "🎤 语音识别中...",
+                "日本語": "🎤 音声認識中..."
+            }.get(st.session_state.get("interface_lang", "Polski"), "🎤 Recognizing speech...")
+            with st.spinner(t_spinner_label):
                 resp = self.client.audio.transcriptions.create(
                     model="gpt-4o-mini-transcribe",
                     file=bio
@@ -866,10 +2341,10 @@ class ExplanationManager:
     def __init__(self, openai_handler: OpenAIHandler):
         self.openai_handler = openai_handler
     
-    def explain_text(self, text: str) -> Optional[str]:
-        """Wyjaśnienie tekstu"""
-        # Sprawdź cache
-        cache_key = generate_cache_key(text, "explain")
+    def explain_text(self, text: str, lang: str) -> Optional[str]:
+        """Wyjaśnienie tekstu w języku interfejsu"""
+        # Sprawdź cache (uwzględnij język)
+        cache_key = generate_cache_key(text, "explain", lang=lang)
         cached_result = get_cached_response(cache_key)
         if cached_result:
             st.info("📋 Wynik z cache")
@@ -881,16 +2356,32 @@ class ExplanationManager:
             st.warning(error_msg)
             return None
         
-        # Przygotuj prompt
+        # Ustal język odpowiedzi na podstawie języka interfejsu
+        interface_to_lang = {
+            "Polski": "Polish",
+            "English": "English",
+            "Deutsch": "German",
+            "Українсьka": "Ukrainian",
+            "Français": "French",
+            "Español": "Spanish",
+            "العربية": "Arabic",
+            "Arabski (libański dialekt)": "Arabic (Lebanese dialect)",
+            "中文": "Chinese",
+            "日本語": "Japanese",
+        }
+        response_language = interface_to_lang.get(lang, "Polish")
+
+        # Przygotuj prompt – wyraźnie wymuś język odpowiedzi
         prompt = (
-            "Wyjaśnij trudniejsze słowa i konstrukcje gramatyczne w poniższym tekście. "
-            "Podaj krótkie definicje słówek oraz opisz użyte struktury gramatyczne w prosty sposób.\n\n"
-            f"Tekst: {text}"
+            "Explain the difficult words and grammar structures in the text below. "
+            "Provide short vocabulary definitions and describe the used grammar in a simple way. "
+            f"IMPORTANT: Respond ONLY in {response_language}. Do not include any other language.\n\n"
+            f"Text: {text}"
         )
         
         # Wykonaj request
         messages = [
-            {"role": "system", "content": "Jesteś nauczycielem języka obcego, który tłumaczy słowa i gramatykę prostym językiem."},
+            {"role": "system", "content": f"You are a language teacher. Always respond in {response_language}."},
             {"role": "user", "content": prompt}
         ]
         
@@ -994,6 +2485,8 @@ class FlashcardManager:
     
     def __init__(self, openai_handler: OpenAIHandler):
         self.openai_handler = openai_handler
+        # Dostęp do etykiet dla i18n rysowanych elementów (title/labels)
+        self.labels = Labels.get_labels()
     
     def generate_flashcards(self, text: str, definition_language: str) -> Optional[Dict]:
         """Generowanie fiszek z tekstu z definicjami w wybranym języku i zwracanie struktury danych"""
@@ -1012,16 +2505,18 @@ class FlashcardManager:
         
         # Przygotuj prompt
         prompt = (
-            "Extract the most important and interesting vocabulary items from the text below. "
-            f"For each item provide a short definition in {definition_language} and an example sentence. "
+            "Detect the language of the input text (call it L). "
+            "Extract the most important and interesting vocabulary items from the text written in L. "
+            f"For each item provide: word (in L), definition (in {definition_language}), example sentence (in L). "
+            "Keep the definition short and clear.\n"
             "IMPORTANT: Respond ONLY in strict JSON, without any commentary or markdown.\n"
             "Format:\n"
             "{\n"
             '  "flashcards": [\n'
             '    {\n'
-            '      "word": "term",\n'
-            '      "definition": "short definition in the selected language",\n'
-            '      "example": "usage example"\n'
+            '      "word": "term in L",\n'
+            f'      "definition": "short definition in {definition_language}",\n'
+            '      "example": "usage example sentence in L"\n'
             '    }\n'
             '  ]\n'
             "}\n\n"
@@ -1142,7 +2637,7 @@ class FlashcardManager:
             font_small = _load_font_with_fallback(font_small_size)
             
             # Tytuł
-            title = "📚 FISZKI DO NAUKI"
+            title = self.labels.get("Flashcards image title", {}).get(st.session_state.interface_lang, "📚 Flashcards for learning")
             title_bbox = draw.textbbox((0, 0), title, font=font_large)
             title_width = title_bbox[2] - title_bbox[0]
             title_x = (total_width - title_width) // 2
@@ -1168,29 +2663,24 @@ class FlashcardManager:
                 draw.line([x, y + card_height//2, x + card_width, y + card_height//2], 
                          fill='#ff7f0e', width=2)
                 
-                # Słówko
+                # Słówko / Definicja / Przykład – i18n (wyrównanie lewym marginesem)
+                left_margin = x + 20
+                word_label = self.labels.get("Flashcard label - word", {}).get(st.session_state.interface_lang, "WORD:")
                 word = card.get("word", "")[:30]
-                word_bbox = draw.textbbox((0, 0), word, font=font_large)
-                word_width = word_bbox[2] - word_bbox[0]
-                word_x = x + (card_width - word_width) // 2
-                draw.text((word_x, y + 20), "SŁÓWKO:", fill='#1f77b4', font=font_medium)
-                draw.text((word_x, y + 60), word, fill='#333', font=font_large)
+                draw.text((left_margin, y + 20), f"{word_label} {word}", fill='#333', font=font_large)
                 
-                # Definicja
+                # Definicja (niżej, pod linią, w jednej linii)
+                def_label = self.labels.get("Flashcard label - definition", {}).get(st.session_state.interface_lang, "DEFINITION:")
                 definition = card.get("definition", "")[:60]
-                definition_bbox = draw.textbbox((0, 0), definition, font=font_small)
-                definition_width = definition_bbox[2] - definition_bbox[0]
-                definition_x = x + (card_width - definition_width) // 2
-                draw.text((definition_x, y + card_height//2 + 20), "DEFINICJA:", fill='#1f77b4', font=font_medium)
-                draw.text((definition_x, y + card_height//2 + 60), definition, fill='#555', font=font_small)
+                # Linia podziału jest na y + card_height//2, więc ustaw tekst znacznie poniżej i wyrównaj do lewego marginesu
+                def_y = y + card_height//2 + 28
+                draw.text((left_margin, def_y), f"{def_label} {definition}", fill='#555', font=font_small)
                 
-                # Przykład
+                # Przykład (niżej, jedna linia)
+                ex_label = self.labels.get("Flashcard label - example", {}).get(st.session_state.interface_lang, "EXAMPLE:")
                 example = card.get("example", "")[:80]
-                example_bbox = draw.textbbox((0, 0), example, font=font_small)
-                example_width = example_bbox[2] - example_bbox[0]
-                example_x = x + (card_width - example_width) // 2
-                draw.text((example_x, y + card_height - 80), "PRZYKŁAD:", fill='#1f77b4', font=font_medium)
-                draw.text((example_x, y + card_height - 50), example, fill='#666', font=font_small)
+                ex_y = def_y + 28
+                draw.text((left_margin, ex_y), f"{ex_label} {example}", fill='#666', font=font_small)
             
             # Konwersja do bytes - wybór formatu i jakości
             buffer = io.BytesIO()
@@ -1219,11 +2709,11 @@ class FlashcardManager:
     def generate_practice_words(self, language: str, practice_type: str):
         try:
             prompts = {
-                "Słowa podstawowe": f"Wygeneruj 5 podstawowych słów w języku {language} z transkrypcją fonetyczną. Format: Słowo - Transkrypcja - Znaczenie po polsku",
-                "Zwroty codzienne": f"Wygeneruj 5 codziennych zwrotów w języku {language} z transkrypcją fonetyczną. Format: Zwrot - Transkrypcja - Znaczenie po polsku",
-                "Liczby": f"Wygeneruj liczby od 1 do 10 w języku {language} z transkrypcją fonetyczną. Format: Liczba - Transkrypcja - Znaczenie po polsku",
-                "Kolory": f"Wygeneruj 8 podstawowych kolorów w języku {language} z transkrypcją fonetyczną. Format: Kolor - Transkrypcja - Znaczenie po polsku",
-                "Członkowie rodziny": f"Wygeneruj 8 członków rodziny w języku {language} z transkrypcją fonetyczną. Format: Członek rodziny - Transkrypcja - Znaczenie po polsku",
+                "Słowa podstawowe": f"Generate 5 basic words in {language} with phonetic transcription. Format: Word - Transcription - Meaning in Polish",
+                "Zwroty codzienne": f"Generate 5 common daily phrases in {language} with phonetic transcription. Format: Phrase - Transcription - Meaning in Polish",
+                "Liczby": f"Generate numbers 1-10 in {language} with phonetic transcription. Format: Number - Transcription - Meaning in Polish",
+                "Kolory": f"Generate 8 basic colors in {language} with phonetic transcription. Format: Color - Transcription - Meaning in Polish",
+                "Członkowie rodziny": f"Generate 8 family members in {language} with phonetic transcription. Format: Family member - Transcription - Meaning in Polish",
             }
             prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
             messages = [
@@ -1232,17 +2722,25 @@ class FlashcardManager:
             ]
             result = self.openai_handler.make_request(messages)
             if result:
-                st.success("✅ Wygenerowano słowa do ćwiczenia!")
-                st.markdown(f"""
-                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;">
-                    <h4 style="margin: 0 0 15px 0; color: #6f42c1;">📚 {practice_type} w języku {language}:</h4>
-                    <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
+                st.sidebar.success(self.labels["Success: words generated"][st.session_state.interface_lang])
+                # Zlokalizowana etykieta typu ćwiczenia
+                display_type_key = f"Opt - {practice_type}"
+                display_type = self.labels.get(display_type_key, {}).get(st.session_state.interface_lang, practice_type)
+                # Zapamiętaj wynik, aby był widoczny po każdej rerunie
+                st.session_state.practice_words_result = result
+                st.session_state.practice_words_display_type = display_type
+                st.session_state.practice_words_language = language
+                st.session_state.scroll_to_practice = True
+                st.sidebar.markdown(f"""
+                <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;\">
+                    <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
+                    <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result}</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.error("❌ Nie udało się wygenerować słów do ćwiczenia.")
+                st.sidebar.error(self.labels["Error: words not generated"][st.session_state.interface_lang])
         except Exception as e:
-            st.error(f"❌ Błąd generowania słów: {e}")
+            st.sidebar.error(f"{self.labels['Error: words generation exception'][st.session_state.interface_lang]} {e}")
 
     def analyze_pronunciation(self, language: str, recorded_text: str):
         try:
@@ -1266,17 +2764,17 @@ class FlashcardManager:
             ]
             result = self.openai_handler.make_request(messages)
             if result:
-                st.success("✅ Analiza wymowy gotowa!")
+                st.success(self.labels["Success: pronunciation analyzed"][st.session_state.interface_lang])
                 st.markdown(f"""
                 <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #17a2b8;">
-                    <h4 style="margin: 0 0 15px 0; color: #17a2b8;">📊 Analiza wymowy:</h4>
+                    <h4 style="margin: 0 0 15px 0; color: #17a2b8;">{self.labels['Pronunciation analysis'][st.session_state.interface_lang]}</h4>
                     <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.error("❌ Nie udało się przeanalizować wymowy.")
+                st.error(self.labels["Error: pronunciation not analyzed"][st.session_state.interface_lang])
         except Exception as e:
-            st.error(f"❌ Błąd analizy wymowy: {e}")
+            st.error(f"{self.labels['Error: pronunciation exception'][st.session_state.interface_lang]} {e}")
 
 # Klasa do rozpoznawania mowy
 class SpeechRecognitionManager:
@@ -1354,74 +2852,93 @@ class MultilingualApp:
         self.flashcard_manager = None
         self.client = None
     
-    def render_sidebar(self):
+    def render_sidebar(self, lang: str):
         """Renderowanie sidebar"""
-        st.sidebar.title("⚙️ Ustawienia")
-        
-        # Wybór języka interfejsu
-        lang = st.sidebar.selectbox(
-            "🌐 Język interfejsu",
-            ["Polski", "English", "Deutsch", "Українсьka", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"],
-            index=0
-        )
+        st.sidebar.title(self.labels["Ustawienia"][lang])
         
         # Wybór motywu
-        st.sidebar.subheader("🎨 Motyw")
+        st.sidebar.subheader(self.labels["Motyw"][lang])
         bg_color = st.sidebar.radio(
-            "Kolor tła",
-            ["Jasny", "Ciemny"],
+            self.labels["Kolor tła"][lang],
+            [self.labels["Jasny"][lang], self.labels["Ciemny"][lang]],
             index=0
         )
         
         # Informacje o aplikacji
         st.sidebar.markdown("---")
-        st.sidebar.subheader("ℹ️ O aplikacji")
-        st.sidebar.markdown("""
-        **Tłumacz Wielojęzyczny** to zaawansowane narzędzie do:
-        - 🌍 Tłumaczenia tekstów
-        - 📚 Wyjaśniania gramatyki
-        - ✨ Poprawy stylistyki
-        - 🔧 Korekcji błędów
-        - 📖 Tworzenia fiszek
-        - 🎤 Ćwiczenia wymowy
-        """)
+        st.sidebar.subheader(self.labels["O aplikacji"][lang])
+        st.sidebar.markdown(self.labels["About content"][lang])
         
         # 🎤 Ćwicz wymowę – pełna sekcja
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🎤 Ćwicz wymowę")
+        st.sidebar.subheader(self.labels["Ćwicz wymowę"][lang])
         practice_lang = st.sidebar.selectbox(
-            "🌍 Język do ćwiczenia",
+            self.labels["Język do ćwiczenia"][lang],
             ["English", "German", "French", "Spanish", "Italian", "Polish", "Arabic", "Chinese", "Japanese"],
             index=0,
             key="practice_language_select"
         )
         practice_type = st.sidebar.selectbox(
-            "🎯 Typ ćwiczenia",
-            ["Słowa podstawowe", "Zwroty codzienne", "Liczby", "Kolory", "Członkowie rodziny"],
+            self.labels["Typ ćwiczenia"][lang],
+            [
+                self.labels["Opt - Słowa podstawowe"][lang],
+                self.labels["Opt - Zwroty codzienne"][lang],
+                self.labels["Opt - Liczby"][lang],
+                self.labels["Opt - Kolory"][lang],
+                self.labels["Opt - Członkowie rodziny"][lang],
+            ],
             index=0,
             key="practice_type_select"
         )
-        if st.sidebar.button("🎲 Generuj słowa do ćwiczenia", use_container_width=True):
-            self.generate_practice_words(practice_lang, practice_type)
+        if st.sidebar.button(self.labels["Generuj słowa do ćwiczenia"][lang], use_container_width=True):
+            # Zmapuj z powrotem na polskie klucze logiki promptu
+            reverse_map = {
+                self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
+                self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
+                self.labels["Opt - Liczby"][lang]: "Liczby",
+                self.labels["Opt - Kolory"][lang]: "Kolory",
+                self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
+            }
+            selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
+            self.generate_practice_words(practice_lang, selected_key)
+
+        # Jeżeli mamy wynik w stanie, pokaż go zawsze w sidebarze wraz z przyciskiem czyszczenia
+        if st.session_state.get("practice_words_result"):
+            st.sidebar.markdown(f"""
+            <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;\">
+                <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {st.session_state.practice_words_display_type} ({st.session_state.practice_words_language}):</h4>
+                <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{st.session_state.practice_words_result}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.sidebar.button(
+                self.labels["Clear practice result"][lang],
+                key="clear_practice_sidebar",
+                use_container_width=True,
+                on_click=lambda: [
+                    st.session_state.pop("practice_words_result", None),
+                    st.session_state.pop("practice_words_display_type", None),
+                    st.session_state.pop("practice_words_language", None),
+                ],
+            )
         practice_mic_key = f"practice_mic_v{st.session_state.practice_mic_version}"
-        practice_mic = st.sidebar.audio_input("🎤 Nagraj wymowę", key=practice_mic_key)
+        practice_mic = st.sidebar.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
         if practice_mic is not None:
             txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav")
             if txt:
                 st.session_state.practice_text = txt
                 st.session_state.practice_mic_version += 1
-                st.sidebar.success("✅ Rozpoznano wymowę")
+                st.sidebar.success(self.labels["Rozpoznano wymowę"][lang])
         if st.session_state.practice_text:
-            st.sidebar.caption("🔎 Ostatnia rozpoznana wypowiedź:")
+            st.sidebar.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
             st.sidebar.info(st.session_state.practice_text)
-            if st.sidebar.button("🔍 Analizuj wymowę", use_container_width=True):
+            if st.sidebar.button(self.labels["Analizuj wymowę"][lang], use_container_width=True):
                 self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
         
         # Statystyki
         if 'request_count' not in st.session_state:
             st.session_state.request_count = 0
         
-        st.sidebar.markdown(f"📊 Liczba requestów: {st.session_state.request_count}")
+        st.sidebar.markdown(f"{self.labels['Liczba requestów'][lang]}: {st.session_state.request_count}")
         
         return lang, bg_color
 
@@ -1429,11 +2946,11 @@ class MultilingualApp:
         """Generowanie słów do ćwiczenia wymowy (Cloud)"""
         try:
             prompts = {
-                "Słowa podstawowe": f"Wygeneruj 5 podstawowych słów w języku {language} z transkrypcją fonetyczną. Format: Słowo - Transkrypcja - Znaczenie po polsku",
-                "Zwroty codzienne": f"Wygeneruj 5 codziennych zwrotów w języku {language} z transkrypcją fonetyczną. Format: Zwrot - Transkrypcja - Znaczenie po polsku",
-                "Liczby": f"Wygeneruj liczby od 1 do 10 w języku {language} z transkrypcją fonetyczną. Format: Liczba - Transkrypcja - Znaczenie po polsku",
-                "Kolory": f"Wygeneruj 8 podstawowych kolorów w języku {language} z transkrypcją fonetyczną. Format: Kolor - Transkrypcja - Znaczenie po polsku",
-                "Członkowie rodziny": f"Wygeneruj 8 członków rodziny w języku {language} z transkrypcją fonetyczną. Format: Członek rodziny - Transkrypcja - Znaczenie po polsku",
+                "Słowa podstawowe": f"Generate 5 basic words in {language} with phonetic transcription. Format: Word - Transcription - Meaning in Polish",
+                "Zwroty codzienne": f"Generate 5 common daily phrases in {language} with phonetic transcription. Format: Phrase - Transcription - Meaning in Polish",
+                "Liczby": f"Generate numbers 1-10 in {language} with phonetic transcription. Format: Number - Transcription - Meaning in Polish",
+                "Kolory": f"Generate 8 basic colors in {language} with phonetic transcription. Format: Color - Transcription - Meaning in Polish",
+                "Członkowie rodziny": f"Generate 8 family members in {language} with phonetic transcription. Format: Family member - Transcription - Meaning in Polish",
             }
             prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
             messages = [
@@ -1442,17 +2959,26 @@ class MultilingualApp:
             ]
             result = self.openai_handler.make_request(messages)
             if result:
-                st.success("✅ Wygenerowano słowa do ćwiczenia!")
-                st.markdown(f"""
-                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;">
-                    <h4 style="margin: 0 0 15px 0; color: #6f42c1;">📚 {practice_type} w języku {language}:</h4>
-                    <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
+                st.sidebar.success(self.labels["Success: words generated"][st.session_state.interface_lang])
+                display_type_key = f"Opt - {practice_type}"
+                display_type = self.labels.get(display_type_key, {}).get(st.session_state.interface_lang, practice_type)
+                # Zapamiętaj wynik i ustaw flagę przewinięcia
+                st.session_state.practice_words_result = result
+                st.session_state.practice_words_display_type = display_type
+                st.session_state.practice_words_language = language
+                st.session_state.scroll_to_practice = True
+                # Pokaż także w sidebarze
+                st.sidebar.markdown(f"""
+                <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1;\">
+                    <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
+                    <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result}</div>
                 </div>
                 """, unsafe_allow_html=True)
+                st.rerun()
             else:
-                st.error("❌ Nie udało się wygenerować słów do ćwiczenia.")
+                st.sidebar.error(self.labels["Error: words not generated"][st.session_state.interface_lang])
         except Exception as e:
-            st.error(f"❌ Błąd generowania słów: {e}")
+            st.sidebar.error(f"{self.labels['Error: words generation exception'][st.session_state.interface_lang]} {e}")
 
     def analyze_pronunciation(self, language: str, recorded_text: str):
         """Analiza wymowy (Cloud)"""
@@ -1477,17 +3003,17 @@ class MultilingualApp:
             ]
             result = self.openai_handler.make_request(messages)
             if result:
-                st.success("✅ Analiza wymowy gotowa!")
+                st.success(self.labels["Success: pronunciation analyzed"][st.session_state.interface_lang])
                 st.markdown(f"""
                 <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #17a2b8;">
-                    <h4 style="margin: 0 0 15px 0; color: #17a2b8;">📊 Analiza wymowy:</h4>
+                    <h4 style="margin: 0 0 15px 0; color: #17a2b8;">{self.labels['Pronunciation analysis'][st.session_state.interface_lang]}</h4>
                     <div style="font-size: 16px; line-height: 1.6; margin: 0;">{result}</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.error("❌ Nie udało się przeanalizować wymowy.")
+                st.error(self.labels["Error: pronunciation not analyzed"][st.session_state.interface_lang])
         except Exception as e:
-            st.error(f"❌ Błąd analizy wymowy: {e}")
+            st.error(f"{self.labels['Error: pronunciation exception'][st.session_state.interface_lang]} {e}")
     
     def _extract_section(self, text: str, section_start: str) -> str:
         """Wyciąga określoną sekcję z tekstu wynikowego"""
@@ -1608,13 +3134,13 @@ class MultilingualApp:
             self.labels["Wprowadź tekst tutaj:"][lang],
             value=initial_text,
             height=150,
-            placeholder="Wpisz tutaj tekst do przetłumaczenia...",
+            placeholder=self.labels["Placeholder: tłumaczenie"][lang],
             key=text_key
         )
         # Wyczyść tekst – przycisk pod polem (bez bezpośredniej modyfikacji klucza istniejącego widgetu)
         clear_col, _ = st.columns([1, 3])
         with clear_col:
-            if st.button("🗑️ Wyczyść tekst", key="translation_clear_btn", use_container_width=True):
+            if st.button(self.labels["Wyczyść tekst"][lang], key="translation_clear_btn", use_container_width=True):
                 st.session_state.recorded_translation_text = ""
                 st.session_state.translation_text_version += 1
                 st.rerun()
@@ -1639,10 +3165,10 @@ class MultilingualApp:
                     st.session_state.recorded_translation_text = text_from_mic
                     # Zresetuj widget przez zmianę klucza (inkrementacja wersji)
                     st.session_state.mic_widget_version += 1
-                    st.success("✅ Nagrano i rozpoznano! Tekst dodano powyżej.")
+                    st.success(self.labels["Success: mic recognized"][lang])
                     st.rerun()
                 else:
-                    st.warning("⚠️ Nie udało się rozpoznać mowy.")
+                    st.warning(self.labels["Warn: mic not recognized"][lang])
         with col2:
             file_key = f"translation_audio_upload_v{st.session_state.file_widget_version}"
             audio_file = st.file_uploader(
@@ -1657,17 +3183,17 @@ class MultilingualApp:
                     st.session_state.recorded_translation_text = text_from_file
                     # Zresetuj widget przez zmianę klucza (inkrementacja wersji)
                     st.session_state.file_widget_version += 1
-                    st.success("✅ Wczytano i rozpoznano! Tekst dodano powyżej.")
+                    st.success(self.labels["Success: file recognized"][lang])
                     st.rerun()
                 else:
-                    st.warning("⚠️ Nie udało się rozpoznać mowy z pliku.")
+                    st.warning(self.labels["Warn: file not recognized"][lang])
         
         st.markdown("---")
         
         # Opcje tłumaczenia
         col1, col2 = st.columns([1, 1])
         with col1:
-            correct_errors = st.checkbox("🔧 Popraw błędy przed tłumaczeniem", value=False, help="Popraw błędy gramatyczne i stylistyczne w oryginalnym języku przed tłumaczeniem")
+            correct_errors = st.checkbox(self.labels["Popraw błędy przed tłumaczeniem"][lang], value=False, help=self.labels["Help: Popraw błędy przed tłumaczeniem"][lang])
             st.session_state.correct_errors_enabled = correct_errors
         with col2:
             st.markdown("")  # Pusty element dla wyrównania
@@ -1687,7 +3213,7 @@ class MultilingualApp:
                     # Custom nagłówek wyników z odpowiednim CSS
                     st.markdown(f"""
                     <div style="margin: 0; width: 100%; box-sizing: border-box;">
-                        <h3 style="margin: 0 0 20px 0; color: #1f77b4; font-size: 24px; font-weight: 700; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">✨ Wynik ({target_lang}):</h3>
+                        <h3 style="margin: 0 0 20px 0; color: #1f77b4; font-size: 24px; font-weight: 700; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">✨ {self.labels['Result'][lang]} ({target_lang}):</h3>
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -1696,40 +3222,40 @@ class MultilingualApp:
                         if correct_errors and ("Wykryty język:" in result["translation"] or "Poprawiony tekst:" in result["translation"]):
                             # Wyświetl w czterech kolumnach jedna pod drugą
                             
-                            # Kolumna 1: Wykryty język
+                            # Kolumna 1: Wykryty język (i18n)
                             st.markdown(f"""
                             <div style="background-color: #e3f2fd; padding: 20px; border-radius: 15px; border-left: 8px solid #2196f3; margin: 0 0 20px 0; width: 100%; box-sizing: border-box; min-height: 120px;">
-                                <h4 style="margin: 0 0 15px 0; color: #2196f3; font-size: 18px; font-weight: 600; text-align: left;">🔍 Wykryty język</h4>
+                                <h4 style="margin: 0 0 15px 0; color: #2196f3; font-size: 18px; font-weight: 600; text-align: left;">{self.labels['Detected language'][lang]}</h4>
                                 <div style="font-size: 16px; line-height: 1.6; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">
                                     {self._extract_section(result["translation"], "Wykryty język:")}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            # Kolumna 2: Poprawiony tekst
+                            # Kolumna 2: Poprawiony tekst (i18n)
                             st.markdown(f"""
                             <div style="background-color: #f3e5f5; padding: 20px; border-radius: 15px; border-left: 8px solid #9c27b0; margin: 0 0 20px 0; width: 100%; box-sizing: border-box; min-height: 120px;">
-                                <h4 style="margin: 0 0 15px 0; color: #9c27b0; font-size: 18px; font-weight: 600; text-align: left;">✏️ Poprawiony tekst</h4>
+                                <h4 style="margin: 0 0 15px 0; color: #9c27b0; font-size: 18px; font-weight: 600; text-align: left;">{self.labels['Corrected text'][lang]}</h4>
                                 <div style="font-size: 16px; line-height: 1.6; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">
                                     {self._extract_section(result["translation"], "Poprawiony tekst:")}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            # Kolumna 3: Tłumaczenie
+                            # Kolumna 3: Tłumaczenie (i18n)
                             st.markdown(f"""
                             <div style="background-color: #e8f5e8; padding: 20px; border-radius: 15px; border-left: 8px solid #4caf50; margin: 0 0 20px 0; width: 100%; box-sizing: border-box; min-height: 120px;">
-                                <h4 style="margin: 0 0 15px 0; color: #4caf50; font-size: 18px; font-weight: 600; text-align: left;">🌐 Tłumaczenie</h4>
+                                <h4 style="margin: 0 0 15px 0; color: #4caf50; font-size: 18px; font-weight: 600; text-align: left;">📝 {self.labels['Translation'][lang]}</h4>
                                 <div style="font-size: 16px; line-height: 1.6; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">
                                     {self._extract_section(result["translation"], "Tłumaczenie na")}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            # Kolumna 4: Transkrypcja
+                            # Kolumna 4: Transkrypcja (i18n)
                             st.markdown(f"""
                             <div style="background-color: #fff3e0; padding: 20px; border-radius: 15px; border-left: 8px solid #ff9800; margin: 0 0 20px 0; width: 100%; box-sizing: border-box; min-height: 120px;">
-                                <h4 style="margin: 0 0 15px 0; color: #ff9800; font-size: 18px; font-weight: 600; text-align: left;">🔤 Transkrypcja</h4>
+                                <h4 style="margin: 0 0 15px 0; color: #ff9800; font-size: 18px; font-weight: 600; text-align: left;">{self.labels['Transcription'][lang]}</h4>
                                 <div style="font-size: 16px; line-height: 1.6; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">
                                     {self._extract_section(result["translation"], "Transkrypcja:")}
                                 </div>
@@ -1739,7 +3265,7 @@ class MultilingualApp:
                             # Standardowe wyświetlanie tłumaczenia w jednej kolumnie
                             st.markdown(f"""
                             <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #1f77b4; margin: 0; width: 100%; box-sizing: border-box;">
-                                <h4 style="margin: 0 0 20px 0; color: #1f77b4; font-size: 20px; font-weight: 600; text-align: left;">📝 Tłumaczenie:</h4>
+                                <h4 style="margin: 0 0 20px 0; color: #1f77b4; font-size: 20px; font-weight: 600; text-align: left;">📝 {self.labels['Translation'][lang]}</h4>
                                 <div style="font-size: 18px; line-height: 1.8; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">{result['translation']}</div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -1757,14 +3283,14 @@ class MultilingualApp:
                             # Wyświetl audio w lepszym formacie
                             st.markdown(f"""
                             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 15px; border: 2px solid #e9ecef; margin: 10px 0; width: 100%; box-sizing: border-box;">
-                                <h4 style="margin: 0 0 15px 0; color: #495057; font-size: 18px; font-weight: 600; text-align: left;">🔊 Odsłuchaj tłumaczenie</h4>
+                                <h4 style="margin: 0 0 15px 0; color: #495057; font-size: 18px; font-weight: 600; text-align: left;">{self.labels['Listen translation'][lang]}</h4>
                             </div>
                             """, unsafe_allow_html=True)
                             st.audio(audio_content, format="audio/mp3")
                             
 
             else:
-                st.warning("⚠️ Wpisz tekst do przetłumaczenia.")
+                st.warning(self.labels["Warn: enter text to translate"][lang])
     
     def render_explanation_section(self, lang: str):
         """Renderowanie sekcji wyjaśnień"""
@@ -1773,9 +3299,18 @@ class MultilingualApp:
         explain_text = st.text_area(
             self.labels["Wpisz zdanie lub tekst do wyjaśnienia:"][lang],
             height=120,
-            placeholder="Wpisz tutaj tekst do wyjaśnienia...",
+            placeholder=self.labels["Placeholder: wyjaśnienia"][lang],
             key="explanation_text"
         )
+        # Wyczyść tekst – przycisk pod polem
+        clear_col, _ = st.columns([1, 3])
+        with clear_col:
+            st.button(
+                self.labels["Wyczyść tekst"][lang],
+                key="explanation_clear_btn",
+                use_container_width=True,
+                on_click=lambda: st.session_state.__setitem__("explanation_text", ""),
+            )
         
         if st.button(
             self.labels["Wyjaśnij słowa i gramatykę"][lang],
@@ -1784,33 +3319,42 @@ class MultilingualApp:
         ):
             if explain_text:
                 st.session_state.request_count += 1
-                explanation = self.explanation_manager.explain_text(explain_text)
+                explanation = self.explanation_manager.explain_text(explain_text, lang)
                 
                 if explanation:
                     st.markdown("---")
                     # Wyświetl wyjaśnienia w lepszym formacie
                     st.markdown(f"""
                     <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #28a745; margin: 0; width: 100%; box-sizing: border-box;">
-                        <h4 style="margin: 0 0 20px 0; color: #28a745; font-size: 20px; font-weight: 600; text-align: left;">📚 Wyjaśnienia:</h4>
+                        <h4 style="margin: 0 0 20px 0; color: #28a745; font-size: 20px; font-weight: 600; text-align: left;">📚 {self.labels['Wyjaśnienia słów i gramatyki'][lang]}:</h4>
                         <div style="font-size: 18px; line-height: 1.8; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">{explanation}</div>
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.warning("Wpisz tekst do wyjaśnienia.")
+                st.warning(self.labels["Warn: enter text to explain"][lang])
     
     def render_style_section(self, lang: str):
         # Jeśli włączona jest opcja poprawy błędów przed tłumaczeniem, pokazujemy sekcję stylistyki tylko gdy użytkownik faktycznie jej potrzebuje
         # (nie ukrywamy twardo, ale zostawiamy jasny podtytuł)
         """Renderowanie sekcji stylistyki"""
         st.header(self.labels["Ładna wersja wypowiedzi – poprawa stylistyki"][lang])
-        st.caption("Nie tłumaczy — tylko poprawa stylu i gramatyki w tym samym języku.")
+        st.caption(self.labels["Style caption"][lang])
         
         style_text = st.text_area(
             self.labels["Wpisz tekst do poprawy stylistycznej:"][lang],
             height=120,
-            placeholder="Wpisz tutaj tekst do poprawy...",
+            placeholder=self.labels["Placeholder: stylistyka"][lang],
             key="style_text"
         )
+        # Wyczyść tekst – przycisk pod polem
+        clear_style_col, _ = st.columns([1, 3])
+        with clear_style_col:
+            st.button(
+                self.labels["Wyczyść tekst"][lang],
+                key="style_clear_btn",
+                use_container_width=True,
+                on_click=lambda: st.session_state.__setitem__("style_text", ""),
+            )
         
         if st.button(
             self.labels["Popraw stylistykę i wygeneruj ładną wersję"][lang],
@@ -1826,12 +3370,12 @@ class MultilingualApp:
                     # Wyświetl ładną wersję w lepszym formacie
                     st.markdown(f"""
                     <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #ffc107; margin: 0; width: 100%; box-sizing: border-box;">
-                        <h4 style="margin: 0 0 20px 0; color: #ffc107; font-size: 20px; font-weight: 600; text-align: left;">✨ Ładna wersja wypowiedzi:</h4>
+                        <h4 style="margin: 0 0 20px 0; color: #ffc107; font-size: 20px; font-weight: 600; text-align: left;">✨ {self.labels['Ładna wersja wypowiedzi – poprawa stylistyki'][lang]}:</h4>
                         <div style="font-size: 18px; line-height: 1.8; margin: 0; font-weight: 500; text-align: left; word-wrap: break-word; white-space: normal; overflow-wrap: break-word;">{nice_version}</div>
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.warning("Wpisz tekst do poprawy stylistycznej.")
+                st.warning(self.labels["Warn: enter text to improve"][lang])
     
 
     
@@ -1842,9 +3386,18 @@ class MultilingualApp:
         flashcard_text = st.text_area(
             self.labels["Wpisz tekst, z którego chcesz wygenerować fiszki:"][lang],
             height=120,
-            placeholder="Wpisz tutaj tekst do wygenerowania fiszek...",
+            placeholder=self.labels["Placeholder: fiszki"][lang],
             key="flashcard_text"
         )
+        # Wyczyść tekst – przycisk pod polem
+        clear_flash_col, _ = st.columns([1, 3])
+        with clear_flash_col:
+            st.button(
+                self.labels["Wyczyść tekst"][lang],
+                key="flashcard_clear_btn",
+                use_container_width=True,
+                on_click=lambda: st.session_state.__setitem__("flashcard_text", ""),
+            )
         
         # Wybór języka definicji (interfejs / lista)
         st.caption(self.labels["Wybierz język definicji fiszek"][lang])
@@ -1890,11 +3443,15 @@ class MultilingualApp:
                 flashcards_data = self.flashcard_manager.generate_flashcards(flashcard_text, effective_definition_lang)
                 
                 if flashcards_data and "flashcards" in flashcards_data:
+                    # Zachowaj dane fiszek w stanie i przejdź do stałej sekcji podglądu
+                    st.session_state.flashcards_data = flashcards_data
+                    st.session_state.flashcards_image = None
+                    st.rerun()
                     st.markdown("---")
                     # Wyświetl fiszki w lepszym formacie
                     st.markdown(f"""
                     <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;">
-                        <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">📖 Wygenerowane fiszki:</h4>
+                    <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">📖 {self.labels['Generated flashcards'][lang] if 'Generated flashcards' in self.labels else self.labels['Fiszki ze słówek do nauki'][lang]}</h4>
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -1904,67 +3461,84 @@ class MultilingualApp:
                         st.info("💡 **Wskazówka:** Upewnij się, że tekst jest w języku, który chcesz przetłumaczyć.")
                         return
                     
-                    # Wyświetl fiszki w ładnym formacie
+                    # Wyświetl fiszki w ładnym formacie (i18n)
                     for i, card in enumerate(flashcards_data["flashcards"], 1):
-                        with st.expander(f"🃏 Fiszka {i}: {card.get('word', 'Brak słówka')}"):
+                        expander_title = self.labels.get("Flashcard expander title", {}).get(lang, "Flashcard")
+                        word_label = self.labels.get("Flashcard label - word", {}).get(lang, "WORD:")
+                        def_label = self.labels.get("Flashcard label - definition", {}).get(lang, "DEFINITION:")
+                        ex_label = self.labels.get("Flashcard label - example", {}).get(lang, "EXAMPLE:")
+                        missing_word = self.labels.get("Missing - word", {}).get(lang, "N/A")
+                        with st.expander(f"🃏 {expander_title} {i}: {card.get('word', missing_word)}"):
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.markdown(f"**🔤 Słówko:** {card.get('word', 'Brak')}")
-                                st.markdown(f"**📝 Definicja:** {card.get('definition', 'Brak')}")
+                                st.markdown(f"**🔤 {word_label}** {card.get('word', missing_word)}")
+                                st.markdown(f"**📝 {def_label}** {card.get('definition', missing_word)}")
                             with col2:
-                                st.markdown(f"**💡 Przykład:** {card.get('example', 'Brak')}")
+                                st.markdown(f"**💡 {ex_label}** {card.get('example', missing_word)}")
                     
                     # Generuj obrazy fiszek
                     st.markdown("---")
                     # Wyświetl nagłówek w lepszym formacie
                     st.markdown(f"""
                     <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;">
-                        <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">🖼️ Pobierz fiszki do wydruku</h4>
+                        <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">🖼️ {self.labels['Download flashcards to print'][lang]}</h4>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Wybór formatu
+                    # Wybór formatu (z kluczami, bez natychmiastowego generowania)
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         format_choice = st.selectbox(
-                            "📁 Wybierz format:",
-                            ["PNG (najlepsza jakość)", "JPG (mniejszy rozmiar)", "PDF (do drukowania)"],
-                            index=0
+                            self.labels["Select format"][lang],
+                            [self.labels["Format - PNG best"][lang], self.labels["Format - JPG smaller"][lang], self.labels["Format - PDF print"][lang]],
+                            index=0,
+                            key="flashcards_format"
                         )
-                    
                     with col2:
                         quality_choice = st.selectbox(
-                            "⭐ Jakość:",
-                            ["Wysoka", "Średnia", "Niska"],
-                            index=0
+                            self.labels["Quality"][lang],
+                            [self.labels["Quality - High"][lang], self.labels["Quality - Medium"][lang], self.labels["Quality - Low"][lang]],
+                            index=0,
+                            key="flashcards_quality"
                         )
-                    
                     with col3:
                         size_choice = st.selectbox(
-                            "📏 Rozmiar fiszek:",
-                            ["Duże (800×600)", "Średnie (600×450)", "Małe (400×300)"],
-                            index=0
+                            self.labels["Flashcard size"][lang],
+                            [self.labels["Size - Large"][lang], self.labels["Size - Medium"][lang], self.labels["Size - Small"][lang]],
+                            index=0,
+                            key="flashcards_size"
                         )
-                    
-                    # Generowanie obrazu
-                    image_data = self.flashcard_manager.generate_images(flashcards_data, size_choice, format_choice, quality_choice)
-                    
+
+                    # Przycisk generowania obrazu (unikamy ciężkiego przeliczenia przy każdej zmianie selecta)
+                    if st.button(self.labels.get("Generate image", {}).get(lang, "🖼️ Generate image"), key="flashcards_generate_image_btn"):
+                        image_data = self.flashcard_manager.generate_images(flashcards_data, size_choice, format_choice, quality_choice)
+                        st.session_state.flashcards_image = {
+                            "data": image_data,
+                            "format_choice": format_choice,
+                            "quality_choice": quality_choice,
+                            "size_choice": size_choice,
+                        }
+
+                    image_state = st.session_state.get("flashcards_image")
+                    image_data = image_state.get("data") if image_state else None
+
                     if image_data:
-                        st.success("✅ Obraz został wygenerowany pomyślnie!")
+                        st.success(self.labels.get("Image generated ok", {}).get(lang, "✅ Image generated successfully!"))
                         
                         # Podgląd obrazu
                         st.markdown(f"""
-                        <div style="background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;">
-                            <h4 style="margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;">👀 Podgląd fiszek:</h4>
+                        <div style=\"background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;\">
+                            <h4 style=\"margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;\">{self.labels.get('Flashcards preview', {}).get(lang, '👀 Flashcards preview:')}</h4>
                         </div>
                         """, unsafe_allow_html=True)
-                        st.image(image_data, caption="Podgląd wygenerowanych fiszek", use_container_width=True)
+                        st.image(image_data, caption=self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:"), use_container_width=True)
                         
                         # Przyciski pobierania
                         col1, col2 = st.columns(2)
                         with col1:
                             # Określenie formatu i rozszerzenia pliku
-                            if "JPG" in format_choice:
+                            current_format_choice = image_state.get("format_choice") if image_state else format_choice
+                            if current_format_choice and "JPG" in current_format_choice:
                                 file_extension = "jpg"
                                 mime_type = "image/jpeg"
                             else:
@@ -1972,7 +3546,7 @@ class MultilingualApp:
                                 mime_type = "image/png"
                             
                             st.download_button(
-                                label="📥 Pobierz fiszki",
+                                label=self.labels["Download flashcards"][lang],
                                 data=image_data,
                                 file_name=f"fiszki_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}",
                                 mime=mime_type,
@@ -1982,52 +3556,122 @@ class MultilingualApp:
                         
 
                         
-                        # Szczegółowe instrukcje
-                        with st.expander("📋 📏 Szczegółowe instrukcje wycinania"):
-                            st.markdown("""
-                            ### ✂️ **Jak wyciąć i przygotować fiszki:**
-                            
-                            **📏 Wymiary fiszek:** 
-                            - **Duże:** 800×600 pikseli (≈ 21×16 cm)
-                            - **Średnie:** 600×450 pikseli (≈ 16×12 cm)  
-                            - **Małe:** 400×300 pikseli (≈ 10×8 cm)
-                            
-                            **🖨️ Drukowanie:**
-                            1. Użyj papieru A4 (210×297 mm)
-                            2. Ustaw jakość drukowania na "Wysoką"
-                            3. Wyłącz skalowanie - drukuj w 100%
-                            
-                            **✂️ Wycinanie:**
-                            1. Wytnij każdą fiszkę wzdłuż niebieskiej ramki
-                            2. Złóż na pół wzdłuż pomarańczowej linii
-                            3. Słówko będzie na przodzie, definicja na tyle
-                            
-                            **💎 Laminowanie (opcjonalne):**
-                            - Użyj folii laminującej 125 mikronów
-                            - Temperatura: 130-140°C
-                            - Czas: 30-60 sekund
-                            
-                            **🎯 Wskazówki:**
-                            - Użyj ostrych nożyczek lub noża introligatorskiego
-                            - Możesz użyć perforatora do łatwiejszego składania
-                            - Przechowuj w pudełku lub teczce
-                            """)
+                        # Szczegółowe instrukcje (i18n)
+                        expander_label = self.labels["Cutting instructions - expander"][lang]
+                        with st.expander(expander_label):
+                            st.markdown(self.labels["Cutting instructions - content"][lang])
                         
-                        st.info("💡 **Szybkie instrukcje:** Wydrukuj obraz, wytnij fiszki wzdłuż linii i złóż na pół. Możesz zalaminować dla trwałości!")
+                        st.info(self.labels["Quick tips"][lang])
                     else:
-                        st.error("❌ Błąd generowania obrazu")
+                        st.info(self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:") + " — " + (self.labels.get("Generate image", {}).get(lang, "click 'Generate image' to preview")))
                 else:
                     st.warning("Nie udało się wygenerować fiszek.")
             else:
-                st.warning("Wpisz tekst do wygenerowania fiszek.")
+                st.warning(self.labels["Warn: enter text to generate flashcards"][lang])
+
+        # Stała sekcja podglądu i generowania obrazów (utrzymywana między rerunami)
+        if st.session_state.get("flashcards_data"):
+            flashcards_data = st.session_state.flashcards_data
+            st.markdown("---")
+            st.markdown(f"""
+            <div style=\"background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;\">\n                <h4 style=\"margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;\">📖 {self.labels['Generated flashcards'][lang] if 'Generated flashcards' in self.labels else self.labels['Fiszki ze słówek do nauki'][lang]}</h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Lista fiszek (i18n)
+            for i, card in enumerate(flashcards_data.get("flashcards", []), 1):
+                expander_title = self.labels.get("Flashcard expander title", {}).get(lang, "Flashcard")
+                word_label = self.labels.get("Flashcard label - word", {}).get(lang, "WORD:")
+                def_label = self.labels.get("Flashcard label - definition", {}).get(lang, "DEFINITION:")
+                ex_label = self.labels.get("Flashcard label - example", {}).get(lang, "EXAMPLE:")
+                missing_word = self.labels.get("Missing - word", {}).get(lang, "N/A")
+                with st.expander(f"🃏 {expander_title} {i}: {card.get('word', missing_word)}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**🔤 {word_label}** {card.get('word', missing_word)}")
+                        st.markdown(f"**📝 {def_label}** {card.get('definition', missing_word)}")
+                    with col2:
+                        st.markdown(f"**💡 {ex_label}** {card.get('example', missing_word)}")
+
+            st.markdown("---")
+            st.markdown(f"""
+            <div style=\"background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;\">\n                <h4 style=\"margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;\">🖼️ {self.labels['Download flashcards to print'][lang]}</h4>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                format_choice = st.selectbox(
+                    self.labels["Select format"][lang],
+                    [self.labels["Format - PNG best"][lang], self.labels["Format - JPG smaller"][lang], self.labels["Format - PDF print"][lang]],
+                    index=0,
+                    key="flashcards_format"
+                )
+            with col2:
+                quality_choice = st.selectbox(
+                    self.labels["Quality"][lang],
+                    [self.labels["Quality - High"][lang], self.labels["Quality - Medium"][lang], self.labels["Quality - Low"][lang]],
+                    index=0,
+                    key="flashcards_quality"
+                )
+            with col3:
+                size_choice = st.selectbox(
+                    self.labels["Flashcard size"][lang],
+                    [self.labels["Size - Large"][lang], self.labels["Size - Medium"][lang], self.labels["Size - Small"][lang]],
+                    index=0,
+                    key="flashcards_size"
+                )
+
+            if st.button(self.labels.get("Generate image", {}).get(lang, "🖼️ Generate image"), key="flashcards_generate_image_btn"):
+                img = self.flashcard_manager.generate_images(flashcards_data, size_choice, format_choice, quality_choice)
+                st.session_state.flashcards_image = {
+                    "data": img,
+                    "format_choice": format_choice,
+                    "quality_choice": quality_choice,
+                    "size_choice": size_choice,
+                }
+
+            image_state = st.session_state.get("flashcards_image")
+            image_data = image_state.get("data") if image_state else None
+
+            if image_data:
+                st.success(self.labels.get("Image generated ok", {}).get(lang, "✅ Image generated successfully!"))
+                st.markdown(f"""
+                <div style=\"background-color: #f0f2f6; padding: 25px; border-radius: 15px; border-left: 8px solid #6f42c1; margin: 0; width: 100%; box-sizing: border-box;\">\n                    <h4 style=\"margin: 0 0 20px 0; color: #6f42c1; font-size: 20px; font-weight: 600; text-align: left;\">{self.labels.get('Flashcards preview', {}).get(lang, '👀 Flashcards preview:')}</h4>
+                </div>
+                """, unsafe_allow_html=True)
+                st.image(image_data, caption=self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:"), use_container_width=True)
+                dl_col, _ = st.columns(2)
+                with dl_col:
+                    current_format_choice = image_state.get("format_choice") if image_state else format_choice
+                    if current_format_choice and "JPG" in current_format_choice:
+                        file_extension = "jpg"
+                        mime_type = "image/jpeg"
+                    else:
+                        file_extension = "png"
+                        mime_type = "image/png"
+                    st.download_button(
+                        label=self.labels["Download flashcards"][lang],
+                        data=image_data,
+                        file_name=f"fiszki_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}",
+                        mime=mime_type,
+                        use_container_width=True,
+                        type="primary",
+                        key="flashcards_download"
+                    )
+                with st.expander(self.labels["Cutting instructions - expander"][lang]):
+                    st.markdown(self.labels["Cutting instructions - content"][lang])
+                st.info(self.labels["Quick tips"][lang])
+            else:
+                st.info(self.labels.get("Flashcards preview", {}).get(lang, "👀 Flashcards preview:") + " — " + (self.labels.get("Generate image", {}).get(lang, "click 'Generate image' to preview")))
     
-    def render_footer(self):
+    def render_footer(self, lang: str):
         """Renderowanie stopki"""
         st.markdown("---")
-        st.markdown("""
+        st.markdown(f"""
         <div style="text-align: center; padding: 20px; color: #666;">
-            <p>🌍 <strong>Tłumacz Wielojęzyczny</strong> - Twoje narzędzie do nauki języków</p>
-            <p>Made with ❤️ using Streamlit & OpenAI</p>
+            <p>{self.labels['Footer tagline'][lang]}</p>
+            <p>{self.labels['Footer made with'][lang]}</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -2037,17 +3681,51 @@ class MultilingualApp:
     
     def run(self):
         """Uruchomienie aplikacji"""
-        # Inicjalizacja klienta OpenAI
-        api_key = api_key_input()
-        if not api_key:
-            st.error("❌ Nie można zainicjalizować klienta OpenAI. Sprawdź klucz API.")
+        # Ekran startowy: wybór języka interfejsu i klucz API
+        if not st.session_state.setup_done:
+            # Wybór języka interfejsu na głównej stronie (domyślnie PL, ale natychmiast przełącza UI)
+            interface_lang = st.selectbox(
+                "🌐 Język interfejsu / Interface language",
+                ["Polski", "English", "Deutsch", "Українська", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"],
+                index=["Polski", "English", "Deutsch", "Українська", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"].index(st.session_state.interface_lang),
+                key="setup_interface_lang"
+            )
+            if interface_lang != st.session_state.interface_lang:
+                st.session_state.interface_lang = interface_lang
+                st.rerun()
+
+            lang = st.session_state.interface_lang
+            # Nagłówek po wybraniu języka
+            st.markdown(f"""
+            <div style=\"margin: 0; width: 100%; box-sizing: border-box;\">
+                <h1 style=\"margin: 0 0 24px 0; color: #1f77b4; font-size: 32px; font-weight: 700; text-align: left;\">{self.labels["Tłumacz wielojęzyczny"][lang]}</h1>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Klucz API na głównej stronie (zamiast w sidebarze)
+            api_key_placeholder = "sk-..."
+            api_key_label = "🔑 Wprowadź swój klucz API OpenAI:" if lang == "Polski" else "🔑 Enter your OpenAI API key:"
+            proceed_label = "✅ Rozpocznij" if lang == "Polski" else "✅ Start"
+            api_key_val = st.text_input(api_key_label, type="password", placeholder=api_key_placeholder)
+            proceed = st.button(proceed_label)
+            if proceed:
+                if not api_key_val or not api_key_val.startswith("sk-"):
+                    st.error("❌ Nieprawidłowy klucz API (powinien zaczynać się od 'sk-')" if lang == "Polski" else "❌ Invalid API key (must start with 'sk-')")
+                    st.stop()
+                st.session_state.api_key = api_key_val
+                st.session_state.setup_done = True
+                st.rerun()
             st.stop()
-        
-        self.client = get_openai_client(api_key)
+
+        # Od tego momentu UI jest w wybranym języku
+        lang = st.session_state.interface_lang
+
+        # Inicjalizacja klienta OpenAI
+        self.client = get_openai_client(st.session_state.api_key)
         if not self.client:
             st.error("❌ Nie można zainicjalizować klienta OpenAI. Sprawdź klucz API.")
             st.stop()
-        
+
         # Inicjalizacja menedżerów
         self.openai_handler = OpenAIHandler(self.client)
         self.translation_manager = TranslationManager(self.openai_handler)
@@ -2055,30 +3733,42 @@ class MultilingualApp:
         self.style_manager = StyleManager(self.openai_handler)
         self.correction_manager = CorrectionManager(self.openai_handler)
         self.flashcard_manager = FlashcardManager(self.openai_handler)
-        
-        # Renderuj sidebar
-        lang, bg_color = self.render_sidebar()
-        
+
+        # Renderuj sidebar (bez języka i klucza — już ustawione)
+        lang, bg_color = self.render_sidebar(lang)
+
         # Wyświetl statystyki użycia API
-        display_usage_stats()
-        
+        display_usage_stats(lang, self.labels)
+
         # Aplikuj motyw
-        self.apply_theme(bg_color)
-        
+        self.apply_theme("Ciemny" if bg_color == self.labels["Ciemny"][lang] else "Jasny")
+
+        # Jeśli wygenerowano słowa do praktyki, pokaż panel również na głównym ekranie
+        if st.session_state.get("practice_words_result"):
+            display_type = st.session_state.get("practice_words_display_type", "Practice words")
+            language = st.session_state.get("practice_words_language", "")
+            result_html = st.session_state.get("practice_words_result", "")
+            st.markdown(f"""
+            <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin-bottom: 16px;\">
+                <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
+                <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
         # Sekcje aplikacji
         self.render_translation_section(lang)
         st.markdown("---")
-        
+
         self.render_explanation_section(lang)
         st.markdown("---")
-        
+
         self.render_style_section(lang)
         st.markdown("---")
-        
+
         self.render_flashcard_section(lang)
-        
+
         # Stopka
-        self.render_footer()
+        self.render_footer(lang)
 
 # Uruchomienie aplikacji
 if __name__ == "__main__":
