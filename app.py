@@ -2616,6 +2616,12 @@ class FlashcardManager:
             st.info("📋 Wynik z cache sesji")
             return st.session_state[session_cache_key]
         
+        # Sprawdź czy nie ma błędu w cache (zapobiega powtarzaniu błędów)
+        error_cache_key = f"flashcards_error_{hash(text[:100])}_{definition_language}"
+        if error_cache_key in st.session_state:
+            st.warning("⚠️ Poprzednia próba generowania nie powiodła się. Spróbuj z innym tekstem.")
+            return None
+        
         # Walidacja
         is_valid, error_msg = Utils.validate_text(text)
         if not is_valid:
@@ -2638,16 +2644,53 @@ class FlashcardManager:
         
         # Wykonaj request z timeoutem
         with st.spinner("🔄 Generuję fiszki..."):
-            messages = [
-                {"role": "system", "content": "You are a language teacher. Respond ONLY in JSON format, no extra text."},
-                {"role": "user", "content": f"Text: {text}\n\n{prompt}"}
-            ]
+            # Dodaj timeout dla Cloud
+            import signal
+            import time
             
-            result = self.openai_handler.make_request(messages, max_tokens=800)  # Ograniczone tokeny
-            if not result:
-                st.error("❌ Nie otrzymano odpowiedzi od OpenAI")
+            # Progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                messages = [
+                    {"role": "system", "content": "You are a language teacher. Respond ONLY in JSON format, no extra text."},
+                    {"role": "user", "content": f"Text: {text}\n\n{prompt}"}
+                ]
+                
+                # Timeout dla Cloud (30 sekund)
+                start_time = time.time()
+                timeout_seconds = 30
+                
+                status_text.text("📡 Wysyłam zapytanie do OpenAI...")
+                progress_bar.progress(20)
+                
+                result = self.openai_handler.make_request(messages, max_tokens=800)  # Ograniczone tokeny
+                
+                # Sprawdź timeout
+                if time.time() - start_time > timeout_seconds:
+                    st.error("⏰ Przekroczono limit czasu generowania. Spróbuj ponownie z krótszym tekstem.")
+                    return None
+                
+                if not result:
+                    st.error("❌ Nie otrzymano odpowiedzi od OpenAI")
+                    return None
+                    
+                progress_bar.progress(80)
+                status_text.text("✅ Odpowiedź otrzymana, przetwarzam...")
+                
+            except Exception as e:
+                st.error(f"❌ Błąd podczas generowania: {str(e)}")
+                # Zapisz błąd w cache (zapobiega powtarzaniu)
+                st.session_state[error_cache_key] = True
                 return None
-            
+            finally:
+                progress_bar.progress(100)
+                status_text.text("✅ Gotowe!")
+                time.sleep(0.5)  # Krótka pauza dla UX
+                progress_bar.empty()
+                status_text.empty()
+        
         try:
             # Próbuj sparsować JSON
             import json
@@ -2711,6 +2754,11 @@ class FlashcardManager:
             progress_bar = st.progress(0)
             st.info("🎨 Generuję obraz fiszek...")
             
+            # Timeout dla Cloud (45 sekund)
+            import time
+            start_time = time.time()
+            timeout_seconds = 45
+            
             # Ustawienia obrazu - wybór rozmiaru (zoptymalizowane dla Cloud)
             if "Duże" in size_choice:
                 card_width, card_height = 600, 450  # Zmniejszone z 800x600
@@ -2767,8 +2815,16 @@ class FlashcardManager:
             
             # Generowanie fiszek (ograniczone do max_cards)
             for i, card in enumerate(flashcards[:max_cards]):
+                # Sprawdź timeout co kilka iteracji
+                if i % 2 == 0 and time.time() - start_time > timeout_seconds:
+                    st.error("⏰ Przekroczono limit czasu generowania obrazu. Spróbuj ponownie.")
+                    return None
+                
                 if i >= cards_per_row * cards_per_col:
                     break
+                
+                # Aktualizuj progress bar
+                progress_bar.progress(20 + (i * 60 // max_cards))
                 
                 # Pozycja fiszki
                 row = i // cards_per_row
@@ -2806,6 +2862,12 @@ class FlashcardManager:
             
             # Konwersja do bytes z optymalizacją
             bio = io.BytesIO()
+            
+            # Ostatni timeout check
+            if time.time() - start_time > timeout_seconds:
+                st.error("⏰ Przekroczono limit czasu podczas zapisywania obrazu.")
+                return None
+            
             if "JPG" in format_choice:
                 img.save(bio, format='JPEG', quality=85, optimize=True)  # Zmniejszone z 100
             else:
@@ -3789,194 +3851,171 @@ class MultilingualApp:
     # Metody związane z ćwiczeniem wymowy zostały usunięte dla kompatybilności ze Streamlit Cloud
     
     def run(self):
-        """Uruchomienie aplikacji"""
-        # Ekran startowy: wybór języka interfejsu i klucz API
-        if not st.session_state.setup_done:
-            # Wybór języka interfejsu na głównej stronie (domyślnie PL, ale natychmiast przełącza UI)
-            interface_lang = st.selectbox(
-                "🌐 Język interfejsu / Interface language",
-                ["Polski", "English", "Deutsch", "Українська", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"],
-                index=["Polski", "English", "Deutsch", "Українська", "Français", "Español", "العربية", "Arabski (libański dialekt)", "中文", "日本語"].index(st.session_state.interface_lang),
-                key="setup_interface_lang"
-            )
-            if interface_lang != st.session_state.interface_lang:
-                st.session_state.interface_lang = interface_lang
-                st.rerun()
+        """Uruchomienie aplikacji - zoptymalizowane dla Streamlit Cloud"""
+        try:
+            # Sprawdź czy setup jest gotowy
+            if not st.session_state.get("setup_done", False):
+                self.render_setup_screen()
+                return
 
+            # Od tego momentu UI jest w wybranym języku
             lang = st.session_state.interface_lang
-            # Nagłówek po wybraniu języka
-            st.markdown(f"""
-            <div style=\"margin: 0; width: 100%; box-sizing: border-box;\">
-                <h1 style=\"margin: 0 0 24px 0; color: #1f77b4; font-size: 32px; font-weight: 700; text-align: left;\">{self.labels["Tłumacz wielojęzyczny"][lang]}</h1>
-            </div>
-            """, unsafe_allow_html=True)
 
-            # Klucz API na głównej stronie (zamiast w sidebarze)
-            api_key_placeholder = "sk-..."
-            api_key_label = "🔑 Wprowadź swój klucz API OpenAI:" if lang == "Polski" else "🔑 Enter your OpenAI API key:"
-            proceed_label = "✅ Rozpocznij" if lang == "Polski" else "✅ Start"
-            api_key_val = st.text_input(api_key_label, type="password", placeholder=api_key_placeholder)
-            proceed = st.button(proceed_label)
-            if proceed:
-                if not api_key_val or not api_key_val.startswith("sk-"):
-                    st.error("❌ Nieprawidłowy klucz API (powinien zaczynać się od 'sk-')" if lang == "Polski" else "❌ Invalid API key (must start with 'sk-')")
-                    st.stop()
-                st.session_state.api_key = api_key_val
-                st.session_state.setup_done = True
-                st.rerun()
-            st.stop()
+            # Inicjalizacja klienta OpenAI z timeoutem
+            with st.spinner("🔑 Inicjalizuję klienta OpenAI..."):
+                self.client = get_openai_client(st.session_state.api_key)
+                if not self.client:
+                    st.error("❌ Nie można zainicjalizować klienta OpenAI. Sprawdź klucz API.")
+                    return
 
-        # Od tego momentu UI jest w wybranym języku
-        lang = st.session_state.interface_lang
+            # Inicjalizacja menedżerów
+            self.openai_handler = OpenAIHandler(self.client)
+            # Rejestracja translatora dla auto‑tłumaczeń etykiet
+            Labels.set_translator(self.openai_handler)
+            self.translation_manager = TranslationManager(self.openai_handler)
+            self.explanation_manager = ExplanationManager(self.openai_handler)
+            self.style_manager = StyleManager(self.openai_handler)
+            self.correction_manager = CorrectionManager(self.openai_handler)
+            self.flashcard_manager = FlashcardManager(self.openai_handler)
 
-        # Inicjalizacja klienta OpenAI
-        self.client = get_openai_client(st.session_state.api_key)
-        if not self.client:
-            st.error("❌ Nie można zainicjalizować klienta OpenAI. Sprawdź klucz API.")
-            st.stop()
+            # Renderuj sidebar (bez języka i klucza — już ustawione)
+            lang, bg_color = self.render_sidebar(lang)
 
-        # Inicjalizacja menedżerów
-        self.openai_handler = OpenAIHandler(self.client)
-        # Rejestracja translatora dla auto‑tłumaczeń etykiet
-        Labels.set_translator(self.openai_handler)
-        self.translation_manager = TranslationManager(self.openai_handler)
-        self.explanation_manager = ExplanationManager(self.openai_handler)
-        self.style_manager = StyleManager(self.openai_handler)
-        self.correction_manager = CorrectionManager(self.openai_handler)
-        self.flashcard_manager = FlashcardManager(self.openai_handler)
+            # Wyświetl statystyki użycia API
+            display_usage_stats(lang, self.labels)
 
-        # Renderuj sidebar (bez języka i klucza — już ustawione)
-        lang, bg_color = self.render_sidebar(lang)
+            # Aplikuj motyw
+            self.apply_theme("Ciemny" if bg_color == self.labels["Ciemny"][lang] else "Jasny")
 
-        # Wyświetl statystyki użycia API
-        display_usage_stats(lang, self.labels)
+            # Sekcje aplikacji - z lepszym error handlingiem
+            try:
+                self.render_translation_section(lang)
+                st.markdown("---")
 
-        # Aplikuj motyw
-        self.apply_theme("Ciemny" if bg_color == self.labels["Ciemny"][lang] else "Jasny")
+                self.render_explanation_section(lang)
+                st.markdown("---")
 
-        # (przeniesiono render wyników do sekcji Ćwicz wymowę, tu już nie wyświetlamy)
+                self.render_style_section(lang)
+                st.markdown("---")
 
-        # Sekcje aplikacji
-        self.render_translation_section(lang)
-        st.markdown("---")
+                self.render_flashcard_section(lang)
 
-        self.render_explanation_section(lang)
-        st.markdown("---")
+                # Nowa sekcja: Ćwicz wymowę (przeniesiona z sidebara)
+                st.markdown("---")
+                st.markdown(f"""
+                <div style=\"margin: 0; width: 100%; box-sizing: border-box;\">
+                    <h2 style=\"margin: 0 0 20px 0; color: #495057; font-size: 24px; font-weight: 600; text-align: left;\">{self.labels['Ćwicz wymowę'][lang]}</h2>
+                </div>
+                """, unsafe_allow_html=True)
 
-        self.render_style_section(lang)
-        st.markdown("---")
+                col_practice_1, col_practice_2 = st.columns([1, 1])
+                with col_practice_1:
+                    practice_lang = st.selectbox(
+                        self.labels["Język do ćwiczenia"][lang],
+                        ["English", "German", "French", "Spanish", "Italian", "Polish", "Arabic", "Chinese", "Japanese"],
+                        index=0,
+                        key="practice_language_select_main"
+                    )
+                with col_practice_2:
+                    practice_type = st.selectbox(
+                        self.labels["Typ ćwiczenia"][lang],
+                        [
+                            self.labels["Opt - Słowa podstawowe"][lang],
+                            self.labels["Opt - Zwroty codzienne"][lang],
+                            self.labels["Opt - Liczby"][lang],
+                            self.labels["Opt - Kolory"][lang],
+                            self.labels["Opt - Członkowie rodziny"][lang],
+                        ],
+                        index=0,
+                        key="practice_type_select_main"
+                    )
 
-        self.render_flashcard_section(lang)
+                if st.button(self.labels["Generuj słowa do ćwiczenia"][lang], use_container_width=True, key="generate_practice_main"):
+                    reverse_map = {
+                        self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
+                        self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
+                        self.labels["Opt - Liczby"][lang]: "Liczby",
+                        self.labels["Opt - Kolory"][lang]: "Kolory",
+                        self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
+                    }
+                    selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
+                    self.generate_practice_words(practice_lang, selected_key)
 
-        # Nowa sekcja: Ćwicz wymowę (przeniesiona z sidebara)
-        st.markdown("---")
-        st.markdown(f"""
-        <div style=\"margin: 0; width: 100%; box-sizing: border-box;\">
-            <h2 style=\"margin: 0 0 20px 0; color: #495057; font-size: 24px; font-weight: 600; text-align: left;\">{self.labels['Ćwicz wymowę'][lang]}</h2>
-        </div>
-        """, unsafe_allow_html=True)
+                # Przyciski: Wygeneruj inne (pomijając ostatnie) i Wyczyść historię
+                ctrl_col1, ctrl_col2 = st.columns([1, 1])
+                with ctrl_col1:
+                    if st.button("🔄 Wygeneruj inne", key="generate_practice_alt"):
+                        # Zachowaj historię, ale ponów wywołanie dla nowych propozycji
+                        reverse_map = {
+                            self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
+                            self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
+                            self.labels["Opt - Liczby"][lang]: "Liczby",
+                            self.labels["Opt - Kolory"][lang]: "Kolory",
+                            self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
+                        }
+                        selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
+                        self.generate_practice_words(practice_lang, selected_key)
+                with ctrl_col2:
+                    if st.button("🧹 Wyczyść historię", key="clear_practice_history"):
+                        # Wyczyść historię bieżącego języka i typu
+                        history_key = f"practice_history::{practice_lang}::{selected_key if 'selected_key' in locals() else 'Słowa podstawowe'}"
+                        st.session_state.pop(history_key, None)
+                        st.session_state.pop("practice_words_result", None)
+                        st.success("🧹 Historia wyczyszczona!")
 
-        col_practice_1, col_practice_2 = st.columns([1, 1])
-        with col_practice_1:
-            practice_lang = st.selectbox(
-                self.labels["Język do ćwiczenia"][lang],
-                ["English", "German", "French", "Spanish", "Italian", "Polish", "Arabic", "Chinese", "Japanese"],
-                index=0,
-                key="practice_language_select_main"
-            )
-        with col_practice_2:
-            practice_type = st.selectbox(
-                self.labels["Typ ćwiczenia"][lang],
-                [
-                    self.labels["Opt - Słowa podstawowe"][lang],
-                    self.labels["Opt - Zwroty codzienne"][lang],
-                    self.labels["Opt - Liczby"][lang],
-                    self.labels["Opt - Kolory"][lang],
-                    self.labels["Opt - Członkowie rodziny"][lang],
-                ],
-                index=0,
-                key="practice_type_select_main"
-            )
+                # Wyświetl wygenerowane słowa bezpośrednio pod przyciskiem
+                if st.session_state.get("practice_words_result"):
+                    display_type = st.session_state.get("practice_words_display_type", "Practice words")
+                    language = st.session_state.get("practice_words_language", "")
+                    result_html = st.session_state.get("practice_words_result", "")
+                    st.markdown(f"""
+                    <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin: 16px 0;\">
+                        <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
+                        <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-        if st.button(self.labels["Generuj słowa do ćwiczenia"][lang], use_container_width=True, key="generate_practice_main"):
-            reverse_map = {
-                self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
-                self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
-                self.labels["Opt - Liczby"][lang]: "Liczby",
-                self.labels["Opt - Kolory"][lang]: "Kolory",
-                self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
-            }
-            selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
-            self.generate_practice_words(practice_lang, selected_key)
+                # Nagrywanie i analiza na głównym ekranie z podpowiedzią językową
+                mic_col, _ = st.columns([1, 1])
+                with mic_col:
+                    practice_mic_key = f"practice_mic_main_v{st.session_state.practice_mic_version}"
+                    language_hints = {
+                        "Polish": "pl-PL",
+                        "Polski": "pl-PL",
+                        "English": "en-US",
+                        "German": "de-DE",
+                        "French": "fr-FR",
+                        "Spanish": "es-ES",
+                        "Italian": "it-IT",
+                        "Arabic": "ar-SA",
+                        "Chinese": "zh-CN",
+                        "Japanese": "ja-JP"
+                    }
+                    hint = language_hints.get(practice_lang, None)
+                    practice_mic = st.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
+                    if practice_mic is not None:
+                        txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav", language_code=hint)
+                        if txt:
+                            st.session_state.practice_text = txt
+                            st.session_state.practice_mic_version += 1
+                            st.success(self.labels["Rozpoznano wymowę"][lang])
 
-        # Przyciski: Wygeneruj inne (pomijając ostatnie) i Wyczyść historię
-        ctrl_col1, ctrl_col2 = st.columns([1, 1])
-        with ctrl_col1:
-            if st.button("🔄 Wygeneruj inne", key="generate_practice_alt"):
-                # Zachowaj historię, ale ponów wywołanie dla nowych propozycji
-                reverse_map = {
-                    self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
-                    self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
-                    self.labels["Opt - Liczby"][lang]: "Liczby",
-                    self.labels["Opt - Kolory"][lang]: "Kolory",
-                    self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
-                }
-                selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
-                self.generate_practice_words(practice_lang, selected_key)
-        with ctrl_col2:
-            if st.button("🧹 Wyczyść historię", key="clear_practice_history"):
-                # Wyczyść historię bieżącego języka i typu
-                history_key = f"practice_history::{practice_lang}::{selected_key if 'selected_key' in locals() else 'Słowa podstawowe'}"
-                st.session_state.pop(history_key, None)
-                st.session_state.pop("practice_words_result", None)
-                st.rerun()
+                if st.session_state.practice_text:
+                    st.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
+                    st.info(st.session_state.practice_text)
+                    if st.button(self.labels["Analizuj wymowę"][lang], use_container_width=True, key="analyze_pronunciation_main"):
+                        self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
 
-        # Wyświetl wygenerowane słowa bezpośrednio pod przyciskiem
-        if st.session_state.get("practice_words_result"):
-            display_type = st.session_state.get("practice_words_display_type", "Practice words")
-            language = st.session_state.get("practice_words_language", "")
-            result_html = st.session_state.get("practice_words_result", "")
-            st.markdown(f"""
-            <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin: 16px 0;\">
-                <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
-                <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+                # Stopka
+                self.render_footer(lang)
 
-        # Nagrywanie i analiza na głównym ekranie z podpowiedzią językową
-        mic_col, _ = st.columns([1, 1])
-        with mic_col:
-            practice_mic_key = f"practice_mic_main_v{st.session_state.practice_mic_version}"
-            language_hints = {
-                "Polish": "pl-PL",
-                "Polski": "pl-PL",
-                "English": "en-US",
-                "German": "de-DE",
-                "French": "fr-FR",
-                "Spanish": "es-ES",
-                "Italian": "it-IT",
-                "Arabic": "ar-SA",
-                "Chinese": "zh-CN",
-                "Japanese": "ja-JP"
-            }
-            hint = language_hints.get(practice_lang, None)
-            practice_mic = st.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
-            if practice_mic is not None:
-                txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav", language_code=hint)
-                if txt:
-                    st.session_state.practice_text = txt
-                    st.session_state.practice_mic_version += 1
-                    st.success(self.labels["Rozpoznano wymowę"][lang])
-                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Błąd podczas renderowania sekcji: {str(e)}")
+                st.info("🔄 Spróbuj odświeżyć stronę lub sprawdź logi")
 
-        if st.session_state.practice_text:
-            st.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
-            st.info(st.session_state.practice_text)
-            if st.button(self.labels["Analizuj wymowę"][lang], use_container_width=True, key="analyze_pronunciation_main"):
-                self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
-
-        # Stopka
-        self.render_footer(lang)
+        except Exception as e:
+            st.error(f"❌ Błąd krytyczny aplikacji: {str(e)}")
+            st.info("🔄 Spróbuj odświeżyć stronę lub skontaktuj się z administratorem")
 
 # Uruchomienie aplikacji
 if __name__ == "__main__":
