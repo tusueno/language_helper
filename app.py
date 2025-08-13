@@ -97,7 +97,7 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
         "gpt-4": {"input": 0.03, "output": 0.06},
         "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
         "gpt-3.5-turbo-16k": {"input": 0.003, "output": 0.004},
-        "tts-1": {"input": 0.015, "output": 0.0}  # TTS: $0.015 na 1000 znaków
+        "tts-1": {"input": 0.015, "output": 0}  # TTS: $0.015 na 1000 znaków
     }
     
     if model == "tts-1":
@@ -2713,6 +2713,9 @@ class FlashcardManager:
             st.warning(f"⚠️ Błąd parsowania JSON: {e}")
             st.info("🔄 Próbuję naprawić odpowiedź...")
             
+            # Debug: pokaż surową odpowiedź
+            st.code(f"Surowa odpowiedź OpenAI:\n{result[:500]}...", language="text")
+            
             # Spróbuj wyciągnąć słówka z tekstu
             try:
                 # Usuń markdown i inne formatowanie
@@ -2725,12 +2728,16 @@ class FlashcardManager:
                             # Zapisz też w session cache
                             st.session_state[session_cache_key] = parsed_result
                             return parsed_result
-            except:
-                pass
+            except Exception as parse_error:
+                st.error(f"❌ Błąd podczas naprawiania: {parse_error}")
             
             # Jeśli wszystko się nie udało, zwróć błąd
             st.error("❌ Nie udało się naprawić odpowiedzi")
             return {"flashcards": [{"word": "Błąd parsowania", "definition": f"Nie udało się sparsować: {result[:100]}...", "example": "Spróbuj ponownie"}]}
+        
+        except Exception as e:
+            st.error(f"❌ Nieoczekiwany błąd: {str(e)}")
+            return {"flashcards": [{"word": "Błąd systemu", "definition": f"Błąd: {str(e)}", "example": "Spróbuj ponownie"}]}
         
         return None
     
@@ -3971,21 +3978,7 @@ class MultilingualApp:
                     )
 
                 if st.button(self.labels["Generuj słowa do ćwiczenia"][lang], use_container_width=True, key="generate_practice_main"):
-                    reverse_map = {
-                        self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
-                        self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
-                        self.labels["Opt - Liczby"][lang]: "Liczby",
-                        self.labels["Opt - Kolory"][lang]: "Kolory",
-                        self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
-                    }
-                    selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
-                    self.generate_practice_words(practice_lang, selected_key)
-
-                # Przyciski: Wygeneruj inne (pomijając ostatnie) i Wyczyść historię
-                ctrl_col1, ctrl_col2 = st.columns([1, 1])
-                with ctrl_col1:
-                    if st.button("🔄 Wygeneruj inne", key="generate_practice_alt"):
-                        # Zachowaj historię, ale ponów wywołanie dla nowych propozycji
+                    try:
                         reverse_map = {
                             self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
                             self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
@@ -3995,63 +3988,101 @@ class MultilingualApp:
                         }
                         selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
                         self.generate_practice_words(practice_lang, selected_key)
+                    except Exception as e:
+                        st.error(f"❌ Błąd podczas generowania słów: {str(e)}")
+                        st.info("🔄 Spróbuj ponownie lub sprawdź logi")
+
+                # Przyciski: Wygeneruj inne (pomijając ostatnie) i Wyczyść historię
+                ctrl_col1, ctrl_col2 = st.columns([1, 1])
+                with ctrl_col1:
+                    if st.button("🔄 Wygeneruj inne", key="generate_practice_alt"):
+                        try:
+                            # Zachowaj historię, ale ponów wywołanie dla nowych propozycji
+                            reverse_map = {
+                                self.labels["Opt - Słowa podstawowe"][lang]: "Słowa podstawowe",
+                                self.labels["Opt - Zwroty codzienne"][lang]: "Zwroty codzienne",
+                                self.labels["Opt - Liczby"][lang]: "Liczby",
+                                self.labels["Opt - Kolory"][lang]: "Kolory",
+                                self.labels["Opt - Członkowie rodziny"][lang]: "Członkowie rodziny",
+                            }
+                            selected_key = reverse_map.get(practice_type, "Słowa podstawowe")
+                            self.generate_practice_words(practice_lang, selected_key)
+                        except Exception as e:
+                            st.error(f"❌ Błąd podczas generowania alternatywnych słów: {str(e)}")
                 with ctrl_col2:
                     if st.button("🧹 Wyczyść historię", key="clear_practice_history"):
-                        # Wyczyść historię bieżącego języka i typu
-                        history_key = f"practice_history::{practice_lang}::{selected_key if 'selected_key' in locals() else 'Słowa podstawowe'}"
-                        st.session_state.pop(history_key, None)
-                        st.session_state.pop("practice_words_result", None)
-                        st.success("🧹 Historia wyczyszczona!")
+                        try:
+                            # Wyczyść historię bieżącego języka i typu
+                            history_key = f"practice_history::{practice_lang}::{selected_key if 'selected_key' in locals() else 'Słowa podstawowe'}"
+                            st.session_state.pop(history_key, None)
+                            st.session_state.pop("practice_words_result", None)
+                            st.success("🧹 Historia wyczyszczona!")
+                        except Exception as e:
+                            st.error(f"❌ Błąd podczas czyszczenia historii: {str(e)}")
 
                 # Wyświetl wygenerowane słowa bezpośrednio pod przyciskiem
                 if st.session_state.get("practice_words_result"):
-                    display_type = st.session_state.get("practice_words_display_type", "Practice words")
-                    language = st.session_state.get("practice_words_language", "")
-                    result_html = st.session_state.get("practice_words_result", "")
-                    st.markdown(f"""
-                    <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin: 16px 0;\">
-                        <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
-                        <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    try:
+                        display_type = st.session_state.get("practice_words_display_type", "Practice words")
+                        language = st.session_state.get("practice_words_language", "")
+                        result_html = st.session_state.get("practice_words_result", "")
+                        st.markdown(f"""
+                        <div style=\"background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #6f42c1; margin: 16px 0;\">
+                            <h4 style=\"margin: 0 0 15px 0; color: #6f42c1;\">📚 {display_type} ({language}):</h4>
+                            <div style=\"font-size: 16px; line-height: 1.6; margin: 0;\">{result_html}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"❌ Błąd podczas wyświetlania wyników: {str(e)}")
 
                 # Nagrywanie i analiza na głównym ekranie z podpowiedzią językową
-                mic_col, _ = st.columns([1, 1])
-                with mic_col:
-                    practice_mic_key = f"practice_mic_main_v{st.session_state.practice_mic_version}"
-                    language_hints = {
-                        "Polish": "pl-PL",
-                        "Polski": "pl-PL",
-                        "English": "en-US",
-                        "German": "de-DE",
-                        "French": "fr-FR",
-                        "Spanish": "es-ES",
-                        "Italian": "it-IT",
-                        "Arabic": "ar-SA",
-                        "Chinese": "zh-CN",
-                        "Japanese": "ja-JP"
-                    }
-                    hint = language_hints.get(practice_lang, None)
-                    practice_mic = st.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
-                    if practice_mic is not None:
-                        txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav", language_code=hint)
-                        if txt:
-                            st.session_state.practice_text = txt
-                            st.session_state.practice_mic_version += 1
-                            st.success(self.labels["Rozpoznano wymowę"][lang])
+                try:
+                    mic_col, _ = st.columns([1, 1])
+                    with mic_col:
+                        practice_mic_key = f"practice_mic_main_v{st.session_state.practice_mic_version}"
+                        language_hints = {
+                            "Polish": "pl-PL",
+                            "Polski": "pl-PL",
+                            "English": "en-US",
+                            "German": "de-DE",
+                            "French": "fr-FR",
+                            "Spanish": "es-ES",
+                            "Italian": "it-IT",
+                            "Arabic": "ar-SA",
+                            "Chinese": "zh-CN",
+                            "Japanese": "ja-JP"
+                        }
+                        hint = language_hints.get(practice_lang, None)
+                        practice_mic = st.audio_input(self.labels["Nagraj wymowę"][lang], key=practice_mic_key)
+                        if practice_mic is not None:
+                            txt = self.openai_handler.transcribe_audio(practice_mic.getvalue(), "practice.wav", language_code=hint)
+                            if txt:
+                                st.session_state.practice_text = txt
+                                st.session_state.practice_mic_version += 1
+                                st.success(self.labels["Rozpoznano wymowę"][lang])
 
-                if st.session_state.practice_text:
-                    st.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
-                    st.info(st.session_state.practice_text)
-                    if st.button(self.labels["Analizuj wymowę"][lang], use_container_width=True, key="analyze_pronunciation_main"):
-                        self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
+                    if st.session_state.practice_text:
+                        st.caption(self.labels["Ostatnia rozpoznana wypowiedź:"][lang])
+                        st.info(st.session_state.practice_text)
+                        if st.button(self.labels["Analizuj wymowę"][lang], use_container_width=True, key="analyze_pronunciation_main"):
+                            try:
+                                self.analyze_pronunciation(practice_lang, st.session_state.practice_text)
+                            except Exception as e:
+                                st.error(f"❌ Błąd podczas analizy wymowy: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Błąd w sekcji audio: {str(e)}")
 
                 # Stopka
-                self.render_footer(lang)
+                try:
+                    self.render_footer(lang)
+                except Exception as e:
+                    st.error(f"❌ Błąd podczas renderowania stopki: {str(e)}")
 
             except Exception as e:
                 st.error(f"❌ Błąd podczas renderowania sekcji: {str(e)}")
                 st.info("🔄 Spróbuj odświeżyć stronę lub sprawdź logi")
+                # Debug info
+                st.code(f"Szczegóły błędu:\n{str(e)}", language="text")
 
         except Exception as e:
             st.error(f"❌ Błąd krytyczny aplikacji: {str(e)}")
