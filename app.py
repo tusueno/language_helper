@@ -18,6 +18,24 @@ try:
 except Exception:
     sr = None  # type: ignore
 
+# Konfiguracja Streamlit - MUSI być na początku
+st.set_page_config(
+    page_title="Language Helper AI",
+    page_icon="🌍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Ukryj menu Streamlit
+hide_menu_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_menu_style, unsafe_allow_html=True)
+
 # Cache manager - prosty cache w pamięci
 class SimpleCacheManager:
     """Prosty cache manager w pamięci"""
@@ -83,6 +101,13 @@ def init_session_state():
         st.session_state.setup_done = False
     if 'interface_lang' not in st.session_state:
         st.session_state.interface_lang = "Polski"
+    # Dodatkowe zmienne potrzebne do działania aplikacji
+    if 'request_count' not in st.session_state:
+        st.session_state.request_count = 0
+    if 'flashcards_data' not in st.session_state:
+        st.session_state.flashcards_data = None
+    if 'flashcards_image' not in st.session_state:
+        st.session_state.flashcards_image = None
 
 
 
