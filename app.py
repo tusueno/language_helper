@@ -3750,7 +3750,7 @@ class MultilingualApp:
                                             "size_choice": size_choice,
                                         }
                                         st.success("✅ Obraz został wygenerowany!")
-                                        st.rerun()  # Odśwież po wygenerowaniu obrazu
+                                        # Usunięto st.rerun() - powodował crash
                                     else:
                                         st.error("❌ Nie udało się wygenerować obrazu")
                             except Exception as image_error:
