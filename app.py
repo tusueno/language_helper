@@ -346,6 +346,7 @@ class Labels:
         Labels._translator = _translate_messages
 
     @staticmethod
+    @st.cache_data(ttl=7200)  # Cache na 2 godziny
     def wrap_labels(data: Dict[str, Dict[str, str]]) -> LabelsStore:
         return LabelsStore(data)
     
@@ -551,7 +552,7 @@ class Labels:
                             
                             **🖨️ Drucken:**
                             1. A4-Papier verwenden (210×297 mm)
-                            2. Druckqualität auf „Hoch“ stellen
+                            2. Druckqualität auf „Hoch" stellen
                             3. Skalierung deaktivieren – in 100% drucken
                             
                             **✂️ Schneiden:**
@@ -719,7 +720,7 @@ class Labels:
                             
                             **🖨️ 打印：**
                             1. 使用 A4 纸（210×297 毫米）
-                            2. 打印质量设为“高”
+                            2. 打印质量设为"高"
                             3. 关闭缩放 — 按 100% 比例打印
                             
                             **✂️ 裁切：**
@@ -2601,8 +2602,9 @@ class FlashcardManager:
         # Dostęp do etykiet dla i18n rysowanych elementów (title/labels)
         self.labels = Labels.get_labels()
     
+    @st.cache_data(ttl=1800)  # Cache na 30 minut
     def generate_flashcards(self, text: str, definition_language: str) -> Optional[Dict]:
-        """Generowanie fiszek z tekstu z definicjami w wybranym języku i zwracanie struktury danych"""
+        """Generowanie fiszek z tekstu z definicjami w wybranym języku i zwracanie struktury danych - zoptymalizowane dla Cloud"""
         # Sprawdź cache
         cache_key = generate_cache_key(text, "flashcards")
         cached_result = get_cached_response(cache_key)
@@ -2616,39 +2618,32 @@ class FlashcardManager:
             st.warning(error_msg)
             return None
         
-        # Przygotuj prompt
+        # Ogranicz długość tekstu dla Cloud (zapobiega timeoutom)
+        max_text_length = 2000  # Zmniejszone z nieograniczonej długości
+        if len(text) > max_text_length:
+            text = text[:max_text_length] + "..."
+            st.info(f"📝 Tekst został skrócony do {max_text_length} znaków dla optymalizacji")
+        
+        # Przygotuj prompt (zoptymalizowany dla Cloud)
         prompt = (
-            "Detect the language of the input text (call it L). "
-            "Extract the most important and interesting vocabulary items from the text written in L. "
-            f"For each item provide: word (in L), definition (in {definition_language}), example sentence (in L). "
-            "Keep the definition short and clear.\n"
-            "IMPORTANT: Respond ONLY in strict JSON, without any commentary or markdown.\n"
-            "Format:\n"
-            "{\n"
-            '  "flashcards": [\n'
-            '    {\n'
-            '      "word": "term in L",\n'
-            f'      "definition": "short definition in {definition_language}",\n'
-            '      "example": "usage example sentence in L"\n'
-            '    }\n'
-            '  ]\n'
-            "}\n\n"
-            f"Text: {text}"
+            "Extract 4-6 key vocabulary items from the text. "
+            f"Format: word (in original language), definition (in {definition_language}), example (in original language). "
+            "Keep definitions short. Respond ONLY in JSON format:\n"
+            '{"flashcards": [{"word": "term", "definition": "def", "example": "example"}]}'
         )
         
-        # Wykonaj request
-        messages = [
-            {"role": "system", "content": "Jesteś nauczycielem języka obcego, który tworzy fiszki do nauki słówek. ZAWSZE odpowiadaj TYLKO w formacie JSON, bez żadnych dodatkowych komentarzy, markdown, ani tekstu przed lub po JSON. Twoja odpowiedź musi zaczynać się od { i kończyć na }."},
-            {"role": "user", "content": prompt}
-        ]
-        
-        result = self.openai_handler.make_request(messages)
-        if not result:
-            st.error("❌ Nie otrzymano odpowiedzi od OpenAI")
-            return None
+        # Wykonaj request z timeoutem
+        with st.spinner("🔄 Generuję fiszki..."):
+            messages = [
+                {"role": "system", "content": "You are a language teacher. Respond ONLY in JSON format, no extra text."},
+                {"role": "user", "content": f"Text: {text}\n\n{prompt}"}
+            ]
             
-
-        
+            result = self.openai_handler.make_request(messages, max_tokens=800)  # Ograniczone tokeny
+            if not result:
+                st.error("❌ Nie otrzymano odpowiedzi od OpenAI")
+                return None
+            
         try:
             # Próbuj sparsować JSON
             import json
@@ -2688,8 +2683,9 @@ class FlashcardManager:
         
         return None
     
+    @st.cache_data(ttl=3600)  # Cache na 1 godzinę
     def generate_images(self, flashcards_data: Dict, size_choice: str = "Duże (800×600)", format_choice: str = "PNG (najlepsza jakość)", quality_choice: str = "Wysoka") -> Optional[bytes]:
-        """Generuje obrazy PNG z fiszkami w wybranym rozmiarze"""
+        """Generuje obrazy PNG z fiszkami w wybranym rozmiarze - zoptymalizowane dla Streamlit Cloud"""
         try:
             from PIL import Image, ImageDraw, ImageFont
             import io
@@ -2704,32 +2700,38 @@ class FlashcardManager:
                 st.error("❌ Brak danych fiszek do wygenerowania obrazów")
                 return None
             
-            # Ustawienia obrazu - wybór rozmiaru
+            # Progress bar dla Cloud
+            progress_bar = st.progress(0)
+            st.info("🎨 Generuję obraz fiszek...")
+            
+            # Ustawienia obrazu - wybór rozmiaru (zoptymalizowane dla Cloud)
             if "Duże" in size_choice:
-                card_width, card_height = 800, 600
-                margin = 50
-                font_large_size, font_medium_size, font_small_size = 32, 24, 18
-            elif "Średnie" in size_choice:
-                card_width, card_height = 600, 450
+                card_width, card_height = 600, 450  # Zmniejszone z 800x600
                 margin = 40
                 font_large_size, font_medium_size, font_small_size = 24, 18, 14
+            elif "Średnie" in size_choice:
+                card_width, card_height = 500, 375  # Zmniejszone z 600x450
+                margin = 35
+                font_large_size, font_medium_size, font_small_size = 20, 16, 12
             else:  # Małe
-                card_width, card_height = 400, 300
-                margin = 30
-                font_large_size, font_medium_size, font_small_size = 18, 14, 10
+                card_width, card_height = 350, 260  # Zmniejszone z 400x300
+                margin = 25
+                font_large_size, font_medium_size, font_small_size = 16, 12, 9
             
+            # Ogranicz liczbę fiszek dla Cloud (mniej obciążenia)
+            max_cards = 4  # Zamiast nieograniczonej liczby
             cards_per_row = 2
-            cards_per_col = 2
+            cards_per_col = min(2, (len(flashcards) + 1) // 2)
             
             # Rozmiar całego obrazu
             total_width = cards_per_row * card_width + (cards_per_row + 1) * margin
-            total_height = cards_per_col * card_height + (cards_per_col + 1) * margin + 100  # +100 na tytuł
+            total_height = cards_per_col * card_height + (cards_per_col + 1) * margin + 80  # Zmniejszone z +100
             
             # Tworzenie obrazu
             img = Image.new('RGB', (total_width, total_height), color='white')
             draw = ImageDraw.Draw(img)
             
-            # Próba załadowania czcionki z obsługą polskich znaków (szukamy w typowych ścieżkach systemowych)
+            # Próba załadowania czcionki z obsługą polskich znaków (zoptymalizowane dla Cloud)
             def _load_font_with_fallback(size: int):
                 candidate_paths = [
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Debian/Ubuntu (Streamlit Cloud)
@@ -2754,10 +2756,10 @@ class FlashcardManager:
             title_bbox = draw.textbbox((0, 0), title, font=font_large)
             title_width = title_bbox[2] - title_bbox[0]
             title_x = (total_width - title_width) // 2
-            draw.text((title_x, 20), title, fill='#1f77b4', font=font_large)
+            draw.text((title_x, 15), title, fill='#1f77b4', font=font_large)
             
-            # Generowanie fiszek
-            for i, card in enumerate(flashcards):
+            # Generowanie fiszek (ograniczone do max_cards)
+            for i, card in enumerate(flashcards[:max_cards]):
                 if i >= cards_per_row * cards_per_col:
                     break
                 
@@ -2766,53 +2768,48 @@ class FlashcardManager:
                 col = i % cards_per_row
                 
                 x = margin + col * (card_width + margin)
-                y = 100 + row * (card_height + margin)
+                y = 70 + row * (card_height + margin)  # Zmniejszone z 100
                 
                 # Rysowanie ramki fiszki
                 draw.rectangle([x, y, x + card_width, y + card_height], 
-                             outline='#1f77b4', width=3, fill='#f8f9fa')
+                             outline='#1f77b4', width=2, fill='#f8f9fa')  # Zmniejszone z width=3
                 
                 # Linia podziału
                 draw.line([x, y + card_height//2, x + card_width, y + card_height//2], 
-                         fill='#ff7f0e', width=2)
+                         fill='#ff7f0e', width=1)  # Zmniejszone z width=2
                 
                 # Słówko / Definicja / Przykład – i18n (wyrównanie lewym marginesem)
-                left_margin = x + 20
+                left_margin = x + 15  # Zmniejszone z 20
                 word_label = self.labels.get("Flashcard label - word", {}).get(st.session_state.interface_lang, "WORD:")
-                word = card.get("word", "")[:30]
-                draw.text((left_margin, y + 20), f"{word_label} {word}", fill='#333', font=font_large)
+                word = card.get("word", "")[:25]  # Ograniczone z 30
+                draw.text((left_margin, y + 15), f"{word_label} {word}", fill='#333', font=font_medium)  # Zmniejszone z y + 20
                 
                 # Definicja (niżej, pod linią, w jednej linii)
                 def_label = self.labels.get("Flashcard label - definition", {}).get(st.session_state.interface_lang, "DEFINITION:")
-                definition = card.get("definition", "")[:60]
+                definition = card.get("definition", "")[:50]  # Ograniczone z 60
                 # Linia podziału jest na y + card_height//2, więc ustaw tekst znacznie poniżej i wyrównaj do lewego marginesu
-                def_y = y + card_height//2 + 28
-                draw.text((left_margin, def_y), f"{def_label} {definition}", fill='#555', font=font_small)
+                def_y = y + card_height//2 + 15  # Zmniejszone z +20
+                draw.text((left_margin, def_y), f"{def_label} {definition}", fill='#333', font=font_small)
                 
                 # Przykład (niżej, jedna linia)
                 ex_label = self.labels.get("Flashcard label - example", {}).get(st.session_state.interface_lang, "EXAMPLE:")
-                example = card.get("example", "")[:80]
-                ex_y = def_y + 28
+                example = card.get("example", "")[:60]  # Ograniczone z 80
+                ex_y = def_y + 20  # Zmniejszone z +28
                 draw.text((left_margin, ex_y), f"{ex_label} {example}", fill='#666', font=font_small)
             
-            # Konwersja do bytes - wybór formatu i jakości
-            buffer = io.BytesIO()
-            
+            # Konwersja do bytes z optymalizacją
+            bio = io.BytesIO()
             if "JPG" in format_choice:
-                # JPG z wyborem jakości
-                if "Wysoka" in quality_choice:
-                    quality = 95
-                elif "Średnia" in quality_choice:
-                    quality = 80
-                else:  # Niska
-                    quality = 60
-                img.save(buffer, format='JPEG', quality=quality, optimize=True)
+                img.save(bio, format='JPEG', quality=85, optimize=True)  # Zmniejszone z 100
             else:
-                # PNG - zawsze wysoka jakość
-                img.save(buffer, format='PNG', optimize=True)
+                img.save(bio, format='PNG', optimize=True)
+            bio.seek(0)
             
-            buffer.seek(0)
-            return buffer.getvalue()
+            # Zakończenie progress bar
+            progress_bar.progress(100)
+            st.success("✅ Obraz wygenerowany pomyślnie!")
+            
+            return bio.getvalue()
             
         except Exception as e:
             st.error(f"❌ Błąd generowania obrazów: {str(e)}")
