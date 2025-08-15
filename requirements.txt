@@ -4,3 +4,4 @@ tiktoken==0.11.0
 Pillow==11.2.1
 SpeechRecognition==3.14.3
 PyAudio==0.2.14
+streamlit-webrtc

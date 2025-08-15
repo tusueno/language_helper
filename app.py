@@ -70,7 +70,6 @@ def render_sidebar_and_setup():
     
     if api_key != st.session_state.api_key:
         st.session_state.api_key = api_key
-        st.rerun()
     
     if not api_key or not api_key.startswith("sk-"):
         st.sidebar.warning("Podaj poprawny klucz API (zaczyna się od 'sk-').")
@@ -243,17 +242,17 @@ class SpeechRecognitionManager:
                 # Dostosuj do hałasu otoczenia
                 self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
                 
-                # Ustaw parametry dla lepszego nagrywania - zoptymalizowane
-                self.recognizer.energy_threshold = 300  # Wyższy próg energii = lepsze rozpoznawanie
-                self.recognizer.dynamic_energy_threshold = True
-                self.recognizer.pause_threshold = 1.2  # Krótszy próg pauzy = szybsze zatrzymanie
-                self.recognizer.non_speaking_duration = 1.2
+                # Ustaw parametry dla szybszego nagrywania
+                self.recognizer.energy_threshold = 200  # Niższy próg energii = szybsze wykrycie
+                self.recognizer.dynamic_energy_threshold = False  # Wyłącz dynamiczny próg
+                self.recognizer.pause_threshold = 0.8  # Krótszy próg pauzy = szybsze zatrzymanie
+                self.recognizer.non_speaking_duration = 0.8
                 
-                # Nagrywaj audio z lepszymi parametrami
+                # Nagrywaj audio z szybszymi parametrami
                 audio = self.recognizer.listen(
                     source, 
-                    timeout=10,  # Dłuższy timeout na rozpoczęcie mówienia
-                    phrase_time_limit=25  # Dłuższy limit na frazę
+                    timeout=5,  # Krótszy timeout na rozpoczęcie mówienia
+                    phrase_time_limit=15  # Krótszy limit na frazę
                 )
                 
             # Konwertuj audio na tekst z lepszym rozpoznawaniem
@@ -279,12 +278,12 @@ class SpeechRecognitionManager:
                 # Jeśli nie rozpoznano mowy, spróbuj ponownie z innymi ustawieniami
                 try:
                     # Zmień parametry i spróbuj ponownie
-                    self.recognizer.energy_threshold = 200
-                    self.recognizer.pause_threshold = 2.0
+                    self.recognizer.energy_threshold = 150
+                    self.recognizer.pause_threshold = 1.0
                     
                     # Ponowna próba nagrania
-                    audio_retry = self.recognizer.listen(source, timeout=5, phrase_time_limit=15)
-                    text = self.recognizer.recognize_google(audio_retry, language='pl-PL')
+                    audio_retry = self.recognizer.listen(source, timeout=3, phrase_time_limit=10)
+                    text = self.recognizer.recognize_google(audio, language='pl-PL')
                     
                     if text:
                         return text
@@ -624,6 +623,7 @@ class MultilingualApp:
                             if recorded_text:
                                 st.session_state.recorded_audio_text = recorded_text
                                 st.success("✅ Nagranie zakończone!")
+                                st.info(f"🎤 Rozpoznany tekst: **{recorded_text}**")
                                 st.rerun()  # Odśwież stronę, aby text area się zaktualizowała
                             else:
                                 st.error("❌ Nie udało się rozpoznać mowy. Spróbuj ponownie.")
@@ -845,32 +845,39 @@ class MultilingualApp:
                     if not hasattr(self, 'speech_manager'):
                         self.speech_manager = SpeechRecognitionManager()
                     
-                    with st.spinner("🎙️ Nagrywam... Mów do mikrofonu!"):
-                        recorded_text = self.speech_manager.get_audio_from_microphone()
+                    # Inicjalizacja SpeechRecognitionManager
+                    if not hasattr(self, 'speech_manager'):
+                        self.speech_manager = SpeechRecognitionManager()
+                    
+                    # Pokaż informację o rozpoczęciu nagrywania
+                    st.info("🎙️ Rozpoczynam nagrywanie... Mów do mikrofonu!")
+                    
+                    # Nagrywanie z timeout
+                    recorded_text = self.speech_manager.get_audio_from_microphone()
+                    
+                    if recorded_text:
+                        # Zapisuj tekst w practice_text
+                        st.session_state.practice_text = recorded_text
+                        # Zwiększ licznik wersji mikrofonu
+                        st.session_state.practice_mic_version += 1
+                        st.success("✅ Nagranie zakończone!")
+                        st.info(f"🎤 Rozpoznany tekst: **{recorded_text}**")
                         
-                        if recorded_text:
-                            # Zapisuj tekst w practice_text
-                            st.session_state.practice_text = recorded_text
-                            # Zwiększ licznik wersji mikrofonu
-                            st.session_state.practice_mic_version += 1
-                            st.success("✅ Nagranie zakończone!")
-                            st.info(f"🎤 Rozpoznany tekst: **{recorded_text}**")
-                            
-                            # Automatyczna analiza wymowy po nagraniu
-                            st.markdown("**🎯 Analiza wymowy z nagrania**")
-                            # Zapisz analizę w session state
-                            analysis_result = self.analyze_pronunciation(language, recorded_text)
-                            if analysis_result:
-                                st.session_state.last_pronunciation_analysis = analysis_result
-                                # Wyświetl analizę
-                                st.markdown(f"""
-                                <div style="background-color: #e8f4fd; padding: 20px; border-radius: 10px; border-left: 5px solid #1f77b4; margin: 20px 0;">
-                                    <h4 style="margin: 0 0 15px 0; color: #1f77b4;">🎤 Analiza wymowy:</h4>
-                                    <div style="font-size: 16px; line-height: 1.6; margin: 0; white-space: pre-line;">{analysis_result}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        else:
-                            st.error("❌ Nie udało się rozpoznać mowy. Spróbuj ponownie.")
+                        # Automatyczna analiza wymowy po nagraniu
+                        st.markdown("**🎯 Analiza wymowy z nagrania**")
+                        # Zapisz analizę w session state
+                        analysis_result = self.analyze_pronunciation(language, recorded_text)
+                        if analysis_result:
+                            st.session_state.last_pronunciation_analysis = analysis_result
+                            # Wyświetl analizę
+                            st.markdown(f"""
+                            <div style="background-color: #e8f4fd; padding: 20px; border-radius: 10px; border-left: 5px solid #1f77b4; margin: 20px 0;">
+                                <h4 style="margin: 0 0 15px 0; color: #1f77b4;">🎤 Analiza wymowy:</h4>
+                                <div style="font-size: 16px; line-height: 1.6; margin: 0; white-space: pre-line;">{analysis_result}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.error("❌ Nie udało się rozpoznać mowy. Spróbuj ponownie.")
                             
                 except Exception as e:
                     st.error(f"❌ Błąd podczas nagrywania: {str(e)}")
@@ -899,11 +906,11 @@ class MultilingualApp:
             variety_instruction = variety_instructions[generation_counter % len(variety_instructions)]
             
             prompts = {
-                "Słowa podstawowe": f"Generate 5 basic words in {language} with phonetic transcription. {variety_instruction}. Format: Word - Transcription - Meaning in Polish",
-                "Zwroty codzienne": f"Generate 5 common daily phrases in {language} with phonetic transcription. {variety_instruction}. Format: Phrase - Transcription - Meaning in Polish",
-                "Liczby": f"Generate numbers 1-10 in {language} with phonetic transcription. {variety_instruction}. Format: Number - Transcription - Meaning in Polish",
-                "Kolory": f"Generate 8 basic colors in {language} with phonetic transcription. {variety_instruction}. Format: Color - Transcription - Meaning in Polish",
-                "Członkowie rodziny": f"Generate 8 family members in {language} with phonetic transcription. {variety_instruction}. Format: Family member - Transcription - Meaning in Polish",
+                "Słowa podstawowe": f"Generate 5 basic words in {language}. {variety_instruction}. Format: 1. Word1 2. Word2 3. Word3 4. Word4 5. Word5",
+                "Zwroty codzienne": f"Generate 5 common daily phrases in {language}. {variety_instruction}. Format: 1. Phrase1 2. Phrase2 3. Phrase3 4. Phrase4 5. Phrase5",
+                "Liczby": f"Generate numbers 1-10 in {language}. {variety_instruction}. Format: 1. Number1 2. Number2 3. Number3 4. Number4 5. Number5 6. Number6 7. Number7 8. Number8 9. Number9 10. Number10",
+                "Kolory": f"Generate 8 basic colors in {language}. {variety_instruction}. Format: 1. Color1 2. Color2 3. Color3 4. Color4 5. Color5 6. Color6 7. Color7 8. Color8",
+                "Członkowie rodziny": f"Generate 8 family members in {language}. {variety_instruction}. Format: 1. Member1 2. Member2 3. Member3 4. Member4 5. Member5 6. Member6 7. Member7 8. Member8",
             }
             prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
             messages = [
@@ -927,29 +934,28 @@ class MultilingualApp:
             st.error(f"❌ Błąd podczas generowania słów: {e}")
 
     def analyze_pronunciation(self, language: str, recorded_text: str):
-        """Analizuje wymowę na podstawie nagranego tekstu"""
+        """Analizuje wymowę na podstawie nagranego tekstu - szybsza wersja"""
         try:
+            # Krótszy prompt dla szybszej analizy
             prompt = f"""
-            Przeanalizuj wymowę użytkownika w języku {language}.
-            Nagrany tekst: "{recorded_text}"
-            Oceń:
-            1. Poprawność wymowy (1-10)
-            2. Główne błędy
-            3. Wskazówki do poprawy
-            4. Ćwiczenia do praktyki
-            Odpowiedz w formacie:
+            Krótko przeanalizuj wymowę w języku {language}.
+            Tekst: "{recorded_text}"
+            Format (krótko):
             **Ocena:** X/10
-            **Błędy:** [lista]
-            **Wskazówki:** [lista]
-            **Ćwiczenia:** [lista]
+            **Błędy:** [2-3 główne]
+            **Wskazówki:** [2-3 konkretne]
+            **Ćwiczenia:** [2-3 ćwiczenia]
             """
             messages = [
-                {"role": "system", "content": f"Jesteś ekspertem od wymowy języka {language}."},
+                {"role": "system", "content": f"Jesteś ekspertem od wymowy języka {language}. Odpowiadaj krótko i konkretnie."},
                 {"role": "user", "content": prompt},
             ]
-            result = self.openai_handler.make_request(messages)
+            
+            # Dodaj timeout do request
+            with st.spinner("🔍 Szybka analiza wymowy..."):
+                result = self.openai_handler.make_request(messages)
+                
             if result:
-                st.success("✅ Analiza wymowy gotowa!")
                 return result
             else:
                 st.error("❌ Nie udało się przeanalizować wymowy.")
@@ -966,20 +972,15 @@ class MultilingualApp:
         
         st.session_state.request_count += 1
         
-        with st.spinner("🔍 Analizuję wymowę..."):
+        with st.spinner("🔍 Szybka analiza wymowy..."):
             prompt = (
-                f"Przeanalizuj wymowę użytkownika w języku {language}.\n"
-                f"Transkrypcja audio: \"{transcription_text}\"\n"
-                "Oceń:\n"
-                "1. Poprawność wymowy (1-10)\n"
-                "2. Główne błędy\n"
-                "3. Wskazówki do poprawy\n"
-                "4. Ćwiczenia do praktyki\n"
-                "Odpowiedz w formacie:\n"
+                f"Krótko przeanalizuj wymowę w języku {language}.\n"
+                f"Tekst: \"{transcription_text}\"\n"
+                "Format (krótko):\n"
                 "**Ocena:** X/10\n"
-                "**Błędy:** [lista]\n"
-                "**Wskazówki:** [lista]\n"
-                "**Ćwiczenia:** [lista]"
+                "**Błędy:** [2-3 główne]\n"
+                "**Wskazówki:** [2-3 konkretne]\n"
+                "**Ćwiczenia:** [2-3 ćwiczenia]"
             )
             
             messages = [
@@ -1005,20 +1006,15 @@ class MultilingualApp:
         """Analizuje wymowę na podstawie nagrania audio"""
         st.session_state.request_count += 1
         
-        with st.spinner("🔍 Analizuję wymowę z audio..."):
+        with st.spinner("🔍 Szybka analiza wymowy..."):
             prompt = (
-                f"Przeanalizuj wymowę użytkownika w języku {language}.\n"
-                f"Użytkownik nagrał audio przez mikrofon.\n"
-                "Oceń:\n"
-                "1. Poprawność wymowy (1-10)\n"
-                "2. Główne błędy\n"
-                "3. Wskazówki do poprawy\n"
-                "4. Ćwiczenia do praktyki\n"
-                "Odpowiedz w formacie:\n"
+                f"Krótko przeanalizuj wymowę w języku {language}.\n"
+                f"Użytkownik nagrał audio.\n"
+                "Format (krótko):\n"
                 "**Ocena:** X/10\n"
-                "**Błędy:** [lista]\n"
-                "**Wskazówki:** [lista]\n"
-                "**Ćwiczenia:** [lista]"
+                "**Błędy:** [2-3 główne]\n"
+                "**Wskazówki:** [2-3 konkretne]\n"
+                "**Ćwiczenia:** [2-3 ćwiczenia]"
             )
             
             messages = [
