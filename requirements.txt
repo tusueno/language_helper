@@ -2,6 +2,5 @@ streamlit==1.48.1
 openai==1.99.6
 tiktoken==0.11.0
 Pillow==11.2.1
+PyAudio==0.2.9
 SpeechRecognition==3.14.3
-PyAudio==0.2.14
-streamlit-webrtc

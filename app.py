@@ -617,17 +617,22 @@ class MultilingualApp:
                         if not hasattr(self, 'translation_speech_manager'):
                             self.translation_speech_manager = SpeechRecognitionManager()
                         
-                        with st.spinner("🎙️ Nagrywam... Mów do mikrofonu!"):
-                            recorded_text = self.translation_speech_manager.get_audio_from_microphone()
+                        # Pokaż informację o rozpoczęciu nagrywania
+                        st.info("🎙️ **Rozpoczynam nagrywanie...**")
+                        st.info("💡 **Wskazówka:** Zacznij mówić od razu po kliknięciu przycisku!")
+                        st.warning("⚠️ **Uwaga:** Pierwsze słowa mogą być ucinane - to znany problem z rozpoznawaniem mowy.")
+                        
+                        # Nagrywanie z timeout
+                        recorded_text = self.translation_speech_manager.get_audio_from_microphone()
+                        
+                        if recorded_text:
+                            st.session_state.recorded_audio_text = recorded_text
+                            st.success("✅ **Nagranie zakończone!**")
+                            st.info(f"🎤 **Rozpoznany tekst:** {recorded_text}")
+                            st.rerun()  # Odśwież stronę, aby text area się zaktualizowała
+                        else:
+                            st.error("❌ Nie udało się rozpoznać mowy. Spróbuj ponownie.")
                             
-                            if recorded_text:
-                                st.session_state.recorded_audio_text = recorded_text
-                                st.success("✅ Nagranie zakończone!")
-                                st.info(f"🎤 Rozpoznany tekst: **{recorded_text}**")
-                                st.rerun()  # Odśwież stronę, aby text area się zaktualizowała
-                            else:
-                                st.error("❌ Nie udało się rozpoznać mowy. Spróbuj ponownie.")
-                                
                     except Exception as e:
                         st.error(f"❌ Błąd podczas nagrywania: {str(e)}")
                 
@@ -845,12 +850,10 @@ class MultilingualApp:
                     if not hasattr(self, 'speech_manager'):
                         self.speech_manager = SpeechRecognitionManager()
                     
-                    # Inicjalizacja SpeechRecognitionManager
-                    if not hasattr(self, 'speech_manager'):
-                        self.speech_manager = SpeechRecognitionManager()
-                    
                     # Pokaż informację o rozpoczęciu nagrywania
-                    st.info("🎙️ Rozpoczynam nagrywanie... Mów do mikrofonu!")
+                    st.info("🎙️ **Rozpoczynam nagrywanie...**")
+                    st.info("💡 **Wskazówka:** Zacznij mówić od razu po kliknięciu przycisku!")
+                    st.warning("⚠️ **Uwaga:** Pierwsze słowa mogą być ucinane - to znany problem z rozpoznawaniem mowy.")
                     
                     # Nagrywanie z timeout
                     recorded_text = self.speech_manager.get_audio_from_microphone()
@@ -860,8 +863,8 @@ class MultilingualApp:
                         st.session_state.practice_text = recorded_text
                         # Zwiększ licznik wersji mikrofonu
                         st.session_state.practice_mic_version += 1
-                        st.success("✅ Nagranie zakończone!")
-                        st.info(f"🎤 Rozpoznany tekst: **{recorded_text}**")
+                        st.success("✅ **Nagranie zakończone!**")
+                        st.info(f"🎤 **Rozpoznany tekst:** {recorded_text}")
                         
                         # Automatyczna analiza wymowy po nagraniu
                         st.markdown("**🎯 Analiza wymowy z nagrania**")
@@ -906,11 +909,11 @@ class MultilingualApp:
             variety_instruction = variety_instructions[generation_counter % len(variety_instructions)]
             
             prompts = {
-                "Słowa podstawowe": f"Generate 5 basic words in {language}. {variety_instruction}. Format: 1. Word1 2. Word2 3. Word3 4. Word4 5. Word5",
-                "Zwroty codzienne": f"Generate 5 common daily phrases in {language}. {variety_instruction}. Format: 1. Phrase1 2. Phrase2 3. Phrase3 4. Phrase4 5. Phrase5",
-                "Liczby": f"Generate numbers 1-10 in {language}. {variety_instruction}. Format: 1. Number1 2. Number2 3. Number3 4. Number4 5. Number5 6. Number6 7. Number7 8. Number8 9. Number9 10. Number10",
+                "Słowa podstawowe": f"Generate 5 very simple, basic words in {language}. Use only simple, everyday words that beginners can easily pronounce. Examples: cat, dog, house, book, car. Format: 1. Word1 2. Word2 3. Word3 4. Word4 5. Word5",
+                "Zwroty codzienne": f"Generate 5 simple daily phrases in {language}. {variety_instruction}. Format: 1. Phrase1 2. Phrase2 3. Phrase3 4. Phrase4 5. Phrase5",
+                "Liczby": f"Generate numbers 1-10 in {language}. Always use actual numbers like: one, two, three, four, five, six, seven, eight, nine, ten. Format: 1. Number1 2. Number2 3. Number3 4. Number4 5. Number5 6. Number6 7. Number7 8. Number8 9. Number9 10. Number10",
                 "Kolory": f"Generate 8 basic colors in {language}. {variety_instruction}. Format: 1. Color1 2. Color2 3. Color3 4. Color4 5. Color5 6. Color6 7. Color7 8. Color8",
-                "Członkowie rodziny": f"Generate 8 family members in {language}. {variety_instruction}. Format: 1. Member1 2. Member2 3. Member3 4. Member4 5. Member5 6. Member6 7. Member7 8. Member8",
+                "Członkowie rodziny": f"Generate 8 family members in {language}. Always use family member words like: mother, father, sister, brother, grandmother, grandfather, aunt, uncle. Format: 1. Member1 2. Member2 3. Member3 4. Member4 5. Member5 6. Member6 7. Member7 8. Member8",
             }
             prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
             messages = [
