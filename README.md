@@ -1,37 +1,27 @@
 # 🌍 Language Helper AI
 
-Inteligentna aplikacja do nauki języków obcych zintegrowana z OpenAI API, zbudowana w Python i Streamlit.
+Inteligentna aplikacja do nauki języków wykorzystująca OpenAI GPT-4 i inne modele AI.
 
-## ✨ Funkcje
+## 🚀 Funkcje
 
-### 🔤 Tłumaczenie tekstu
-- **Tłumaczenie wielojęzyczne** (EN, DE, FR, ES, IT → PL)
-- **Nagrywanie audio** z mikrofonu do tekstu
-- **Poprawa błędów gramatycznych** i stylistycznych
-- **Automatyczne tłumaczenie** nagranego audio
+- **🌍 Tłumaczenia** - tłumaczenie tekstu z korektą błędów i poprawą stylistyki
+- **📖 Fiszki** - automatyczne generowanie fiszek ze słówek używając instructor
+- **📚 Wyjaśnienia** - szczegółowe wyjaśnienia gramatyki i znaczenia słów
+- **📚 Wskazówki gramatyczne** - strukturyzowane wskazówki gramatyczne z instructor
+- **🎤 Ćwiczenie wymowy** - analiza wymowy z nagrań audio
+- **🎙️ Nagrywanie audio** - nagrywanie i transkrypcja audio używając audiorecorder
 
-### 📚 Generowanie fiszek
-- **Inteligentne fiszki** na podstawie tekstu
-- **Obrazy fiszek** generowane przez DALL-E
-- **Pobieranie jako PNG** do wydruku
-- **Polskie nagłówki** (Słowo, Definicja, Przykład)
+## 📋 Wymagania
 
-### 🎤 Ćwiczenie wymowy
-- **Generowanie słówek** do ćwiczeń
-- **Nagrywanie audio** z mikrofonu
-- **Automatyczna analiza wymowy** przez AI
-- **Różnorodne kategorie** słówek (podstawowe, codzienne, kolory, liczby)
+- Python 3.8+
+- OpenAI API key
+- Mikrofon (dla funkcji nagrywania)
 
-### 📖 Wyjaśnienia gramatyczne
-- **Inteligentne wyjaśnienia** reguł gramatycznych
-- **Przykłady użycia** w kontekście
-- **Personalizowane wyjaśnienia** na podstawie tekstu
-
-## 🚀 Instalacja
+## 🛠️ Instalacja
 
 1. **Sklonuj repozytorium:**
 ```bash
-git clone [URL_REPOZYTORIUM]
+git clone <repository-url>
 cd projekt_app
 ```
 
@@ -40,100 +30,61 @@ cd projekt_app
 pip install -r requirements.txt
 ```
 
-3. **Ustaw API key OpenAI:**
-```bash
-export OPENAI_API_KEY="twój_klucz_api"
-```
+3. **Skonfiguruj zmienne środowiskowe:**
+   
+   Utwórz plik `.env` w katalogu `projekt_app`:
+   ```env
+   OPENAI_API_KEY=sk-your-openai-api-key-here
+   ```
 
-4. **Uruchom aplikację:**
+   Lub ustaw zmienną środowiskową:
+   ```bash
+   # Windows
+   set OPENAI_API_KEY=sk-your-openai-api-key-here
+   
+   # Linux/Mac
+   export OPENAI_API_KEY=sk-your-openai-api-key-here
+   ```
+
+## 🚀 Uruchomienie
+
 ```bash
 streamlit run app.py
 ```
 
-## 📋 Wymagania
+Aplikacja będzie dostępna pod adresem: http://localhost:8501
 
-- Python 3.8+
-- OpenAI API key
-- Mikrofon (dla funkcji nagrywania)
-- Połączenie internetowe
+## 🔧 Użycie
 
-## 🛠️ Zależności
+1. **Wprowadź klucz API OpenAI** w sidebar (lub ustaw w zmiennych środowiskowych)
+2. **Wybierz funkcję** z menu głównego
+3. **Użyj funkcji nagrywania** do wprowadzania tekstu przez mikrofon
+4. **Generuj fiszki i wskazówki** używając instructor
 
-Główne biblioteki:
-- `streamlit` - interfejs webowy
-- `openai` - integracja z OpenAI API
-- `speech_recognition` - rozpoznawanie mowy
-- `Pillow` - generowanie obrazów fiszek
+## 📚 Zależności
+
+- `streamlit` - interfejs użytkownika
+- `openai` - integracja z OpenAI API (GPT-4, Whisper, TTS)
+- `audiorecorder` - nagrywanie audio z mikrofonu
+- `instructor` - strukturyzowane odpowiedzi AI
+- `pydantic` - walidacja danych
+- `python-dotenv` - zarządzanie zmiennymi środowiskowymi
 - `tiktoken` - liczenie tokenów
+- `Pillow` - generowanie obrazów fiszek
 
-## 🎯 Jak używać
+## 🎯 Funkcje AI
 
-### Tłumaczenie
-1. Wybierz język docelowy
-2. Wpisz tekst lub nagraj audio
-3. Kliknij "Przetłumacz"
-4. Otrzymaj tłumaczenie z opcjonalnymi poprawkami
+- **GPT-4** - tłumaczenia, wyjaśnienia, analiza wymowy
+- **Whisper** - transkrypcja audio do tekstu
+- **TTS** - generowanie audio z tekstu
+- **Instructor** - strukturyzowane fiszki i wskazówki gramatyczne
 
-### Fiszki
-1. Wpisz tekst do analizy
-2. Wybierz język definicji
-3. Kliknij "Wygeneruj fiszki"
-4. Pobierz obraz fiszek jako PNG
+## 🔒 Bezpieczeństwo
 
-### Ćwiczenie wymowy
-1. Wybierz język i typ ćwiczeń
-2. Kliknij "Generuj słowa do ćwiczeń"
-3. Nagraj swoją wymowę
-4. Otrzymaj analizę wymowy przez AI
+- Klucz API jest przechowywany lokalnie
+- Wszystkie żądania są szyfrowane
+- Brak logowania danych użytkownika
 
-## 🔧 Konfiguracja
+## 📝 Licencja
 
-### Streamlit
-Plik `.streamlit/config.toml` zawiera ustawienia aplikacji:
-- Port serwera
-- Ustawienia cache
-- Konfiguracja UI
-
-### OpenAI
-- Model domyślny: `gpt-4o`
-- Maksymalne tokeny: 1200
-- Temperatura: 0.7
-
-## 📱 Interfejs
-
-Aplikacja ma **polski interfejs** i jest zoptymalizowana pod kątem:
-- **Responsywności** - działa na różnych urządzeniach
-- **Intuicyjności** - prosty w użyciu
-- **Wydajności** - szybkie odpowiedzi AI
-- **Estetyki** - nowoczesny design
-
-## 🎨 Funkcje wizualne
-
-- **Gradientowe tła** i **cienie** dla fiszek
-- **Kolorowe akcenty** i **ikony**
-- **Responsywny layout** z kolumnami
-- **Animowane spinnery** podczas ładowania
-
-## 📊 Statystyki użycia
-
-Aplikacja śledzi:
-- **Liczbę tokenów** użytych
-- **Koszty API** OpenAI
-- **Historię żądań** z timestampami
-- **Wydajność** różnych modeli
-
-## 🤝 Wsparcie
-
-W przypadku problemów:
-1. Sprawdź połączenie internetowe
-2. Zweryfikuj API key OpenAI
-3. Sprawdź logi aplikacji
-4. Upewnij się, że mikrofon działa
-
-## 📄 Licencja
-
-Projekt edukacyjny - do użytku osobistego i naukowego.
-
----
-
-**Stworzone z ❤️ w Python i Streamlit**
+MIT License
