@@ -563,10 +563,28 @@ class FlashcardManager:
             draw = ImageDraw.Draw(img)
 
             def _load_font_with_fallback(size: int):
-                try:
-                    return ImageFont.truetype("arial.ttf", size)
-                except Exception:
-                    return ImageFont.load_default()
+                """Ładuje font z obsługą polskich znaków"""
+                font_paths = [
+                    # Windows fonts
+                    "arial.ttf",
+                    "C:/Windows/Fonts/arial.ttf",
+                    # Linux fonts (Streamlit Cloud)
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    # Mac fonts
+                    "/System/Library/Fonts/Arial.ttf",
+                    "/Library/Fonts/Arial.ttf"
+                ]
+                
+                for font_path in font_paths:
+                    try:
+                        font = ImageFont.truetype(font_path, size)
+                        return font
+                    except Exception:
+                        continue
+                
+                # Fallback na domyślny font
+                return ImageFont.load_default()
 
             font_large = _load_font_with_fallback(font_large_size)
             font_medium = _load_font_with_fallback(font_medium_size)
