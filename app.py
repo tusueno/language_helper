@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 import tiktoken
 import io
 import re
-from audiorecorder import audiorecorder
+from streamlit_audiorec import st_audiorec
 from dotenv import load_dotenv
 import os
 import instructor
