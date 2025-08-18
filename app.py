@@ -1174,7 +1174,6 @@ class MultilingualApp:
                 
             except ImportError:
                 st.error("❌ Brak biblioteki audiorecorder. Zainstaluj: pip install audiorecorder")
-                st.info("💡 Alternatywnie możesz użyć: pip install streamlit-audiorecorder")
             except Exception as e:
                 st.error(f"❌ Błąd podczas nagrywania: {str(e)}")
                 st.error(f"🔍 Typ błędu: {type(e).__name__}")
