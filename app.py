@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 from openai import OpenAI
 import json
@@ -20,6 +21,19 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Ustawienia kodowania dla Streamlit
+# st.set_option('deprecation.showPyplotGlobalUse', False)  # Usunięte - opcja nie istnieje w nowszych wersjach Streamlit
+
+# Dodaj CSS dla lepszego wyświetlania polskich znaków
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # --- INICJALIZACJA SESJI ---
 def init_session_state():
@@ -504,7 +518,7 @@ class FlashcardManager:
                     if match:
                         cleaned = match.group(0)
                 
-                parsed_result = json.loads(cleaned)
+                parsed_result = json.loads(cleaned, encoding="utf-8")
             
             if not isinstance(parsed_result, dict) or "flashcards" not in parsed_result:
                 st.error("❌ Odpowiedź nie zawiera klucza 'flashcards'. Odpowiedź:")
