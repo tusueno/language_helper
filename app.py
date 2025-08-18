@@ -48,6 +48,10 @@ def init_session_state():
         st.session_state.flashcards_image = None
     if 'recorded_audio_text' not in st.session_state:
         st.session_state.recorded_audio_text = ""
+    if 'translation_input_text' not in st.session_state:
+        st.session_state.translation_input_text = ""
+    if 'translated_text' not in st.session_state:
+        st.session_state.translated_text = ""
     if 'practice_text' not in st.session_state:
         st.session_state.practice_text = ""
     if 'practice_mic_version' not in st.session_state:
@@ -104,7 +108,6 @@ def render_sidebar_and_setup():
     st.sidebar.markdown("🌍 tłumaczenia")
     st.sidebar.markdown("📖 fiszki")
     st.sidebar.markdown("📚 wyjaśnienia")
-    st.sidebar.markdown("📚 wskazówki gramatyczne")
     st.sidebar.markdown("🎤 wymowa")
     st.sidebar.markdown("🎙️ nagrywanie audio")
 
@@ -215,93 +218,43 @@ class OpenAIHandler:
             if file_extension not in supported_formats:
                 st.warning(f"⚠️ Format {file_extension} może nie być obsługiwany przez OpenAI Whisper. Zalecane: MP3, WAV, M4A")
             
-            # Debug: sprawdź rozmiar pliku
-            st.info(f"🔍 Rozmiar pliku: {len(file_bytes)} bajtów")
-            st.info(f"🔍 Format pliku: {filename}")
-            
             # Sprawdź czy plik nie jest pusty
             if len(file_bytes) == 0:
                 st.error("❌ Plik audio jest pusty")
                 return None
-            
-            # Sprawdź pierwsze bajty pliku (magic numbers)
-            if len(file_bytes) >= 4:
-                header = file_bytes[:4]
-                if header.startswith(b'RIFF'):
-                    st.info("✅ Plik ma poprawny nagłówek WAV")
-                    # Sprawdź czy plik WAV ma poprawną strukturę
-                    if len(file_bytes) < 44:  # Minimalny rozmiar nagłówka WAV
-                        st.error("❌ Plik WAV jest za mały - uszkodzony nagłówek")
-                        return None
-                elif header.startswith(b'\xff\xfb') or header.startswith(b'ID3'):
-                    st.info("✅ Plik ma poprawny nagłówek MP3")
-                else:
-                    st.warning(f"⚠️ Nieznany format pliku. Pierwsze bajty: {header.hex()}")
-                    st.warning("⚠️ OpenAI może nie rozpoznać tego formatu")
             
             # Sprawdź czy plik nie jest za duży (limit OpenAI: 25MB)
             if len(file_bytes) > 25 * 1024 * 1024:
                 st.error("❌ Plik jest za duży (max 25MB)")
                 return None
             
-            # Sprawdź czy plik nie jest za mały (min 1KB)
-            if len(file_bytes) < 1024:
-                st.warning("⚠️ Plik jest bardzo mały - może być uszkodzony")
-            
-            # Transkrypcja audio
+            # Transkrypcja audio - od razu z plikiem tymczasowym (bardziej niezawodne)
             try:
-                # Spróbuj z plikiem w pamięci
-                st.info("🔄 Próbuję transkrypcji z plikiem w pamięci...")
-                response = self.client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=io.BytesIO(file_bytes),
-                    language=whisper_language,
-                    response_format="text"
-                )
-            except Exception as api_error:
-                st.error(f"❌ Błąd API OpenAI: {str(api_error)}")
-                st.error(f"🔍 Typ błędu: {type(api_error).__name__}")
+                st.info("🔄 Transkrybuję audio...")
+                import tempfile
+                import os
                 
-                # Spróbuj zapisać plik tymczasowo na dysku
-                try:
-                    st.info("🔄 Próbuję z plikiem tymczasowym...")
-                    import tempfile
-                    import os
-                    
-                    # Utwórz plik tymczasowy
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-                        temp_file.write(file_bytes)
-                        temp_file_path = temp_file.name
-                    
-                    st.info(f"🔍 Plik tymczasowy: {temp_file_path}")
-                    st.info(f"🔍 Rozmiar pliku na dysku: {os.path.getsize(temp_file_path)} bajtów")
-                    
-                    # Spróbuj transkrypcji z pliku na dysku
-                    with open(temp_file_path, 'rb') as file_obj:
-                        response = self.client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=file_obj,
-                            response_format="text"
-                        )
-                    
-                    # Usuń plik tymczasowy
-                    os.unlink(temp_file_path)
-                    st.success("✅ Transkrypcja z pliku tymczasowego udana!")
-                    
-                except Exception as file_error:
-                    st.error(f"❌ Błąd z plikiem tymczasowym: {str(file_error)}")
-                    
-                    # Ostatnia próba - spróbuj z innymi opcjami
-                    try:
-                        st.info("🔄 Ostatnia próba - bez języka...")
-                        response = self.client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=io.BytesIO(file_bytes),
-                            response_format="text"
-                        )
-                    except Exception as final_error:
-                        st.error(f"❌ Wszystkie próby nieudane: {str(final_error)}")
-                        return None
+                # Utwórz plik tymczasowy
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                    temp_file.write(file_bytes)
+                    temp_file_path = temp_file.name
+                
+                # Transkrypcja z pliku na dysku
+                with open(temp_file_path, 'rb') as file_obj:
+                    response = self.client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=file_obj,
+                        language="pl",  # Ustaw język polski
+                        response_format="text"
+                    )
+                
+                # Usuń plik tymczasowy
+                os.unlink(temp_file_path)
+                st.success("✅ Transkrypcja udana!")
+                
+            except Exception as transcribe_error:
+                st.error(f"❌ Błąd podczas transkrypcji: {str(transcribe_error)}")
+                return None
             
             # Aktualizacja statystyk użycia (Whisper nie zwraca tokenów)
             update_usage_stats(0, 0, "whisper-1")
@@ -321,13 +274,7 @@ class Flashcard(BaseModel):
 class FlashcardSet(BaseModel):
     flashcards: List[Flashcard]
 
-class GrammarTip(BaseModel):
-    rule: str
-    explanation: str
-    examples: List[str]
 
-class GrammarTips(BaseModel):
-    tips: List[GrammarTip]
 
 # --- AUDIO RECORDER MANAGER ---
 class AudioRecorderManager:
@@ -467,8 +414,9 @@ class FlashcardManager:
             
             prompt = (
                 f"Wydobądź 4-6 najważniejszych (kluczowych) słów z poniższego tekstu. "
-                f"Dla każdego słowa wygeneruj fiszkę z definicją w języku {definition_language} "
-                f"i przykładowym zdaniem w oryginalnym języku.\n\n"
+                f"Dla każdego słowa wygeneruj fiszkę z KROTKĄ definicją w języku {definition_language} "
+                f"(max 3-4 słowa) i KROTKIM przykładowym zdaniem (max 6-8 słów) w oryginalnym języku.\n\n"
+                f"Definicje i przykłady powinny być bardzo krótkie, żeby mieściły się w ramce fiszki.\n\n"
                 f"Tekst: {text}"
             )
             
@@ -510,13 +458,14 @@ class FlashcardManager:
             f"Wydobądź 4-6 najważniejszych (kluczowych) słów z poniższego tekstu. Nie wybieraj pojedynczych liter ani słów nieistotnych.\n"
             f"Dla każdego słowa wygeneruj fiszkę w formacie JSON:\n"
             f"- word: oryginalne słowo\n"
-            f"- definition: krótka definicja w języku {definition_language}\n"
-            f"- example: przykładowe zdanie z tym słowem w oryginalnym języku\n"
+            f"- definition: KROTKA definicja w języku {definition_language} (max 3-4 słowa)\n"
+            f"- example: KROTKIE przykładowe zdanie (max 6-8 słów) z tym słowem w oryginalnym języku\n"
+            "Definicje i przykłady powinny być bardzo krótkie, żeby mieściły się w ramce fiszki.\n"
             "Odpowiadaj TYLKO i wyłącznie w formacie JSON, bez żadnych wyjaśnień, komentarzy, tekstu przed ani po JSON.\n"
             "Przykład odpowiedzi:\n"
             '{"flashcards": ['
-            '{"word": "kot", "definition": "domowe zwierzę, często trzymane jako towarzysz", "example": "Mam kota."},'
-            '{"word": "pies", "definition": "wierny towarzysz człowieka, często trzymany jako zwierzę domowe", "example": "Pies szczeka w ogrodzie."}'
+            '{"word": "kot", "definition": "domowe zwierzę", "example": "Mam kota."},'
+            '{"word": "pies", "definition": "wierny towarzysz", "example": "Pies szczeka."}'
             ']}\n'
             "Tekst:\n" + text
         )
@@ -570,49 +519,7 @@ class FlashcardManager:
             st.code(result)
             return None
 
-    def generate_grammar_tips(self, text: str, language: str) -> Optional[Dict]:
-        """Generuje wskazówki gramatyczne używając instructor"""
-        try:
-            if not self.instructor_client:
-                st.error("❌ Instructor nie jest dostępny.")
-                return None
-            
-            prompt = (
-                f"Przeanalizuj poniższy tekst w języku {language} i wygeneruj 3-5 wskazówek gramatycznych. "
-                f"Każda wskazówka powinna zawierać regułę, wyjaśnienie i przykłady.\n\n"
-                f"Tekst: {text}"
-            )
-            
-            messages = [
-                {"role": "system", "content": f"Jesteś ekspertem od gramatyki języka {language}."},
-                {"role": "user", "content": prompt}
-            ]
-            
-            # Użyj instructor do strukturyzowanej odpowiedzi
-            result = self.instructor_client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                response_model=GrammarTips,
-                max_tokens=600
-            )
-            
-            # Konwertuj na format słownika
-            grammar_data = {
-                "tips": [
-                    {
-                        "rule": tip.rule,
-                        "explanation": tip.explanation,
-                        "examples": tip.examples
-                    }
-                    for tip in result.tips
-                ]
-            }
-            
-            return grammar_data
-            
-        except Exception as e:
-            st.error(f"❌ Błąd podczas generowania wskazówek gramatycznych: {str(e)}")
-            return None
+
 
     def generate_images(self, flashcards_data: Dict, size_choice: str = "Duże (800×600)", format_choice: str = "PNG (najlepsza jakość)", quality_choice: str = "Wysoka") -> Optional[bytes]:
         try:
@@ -689,7 +596,7 @@ class FlashcardManager:
                 draw.text((left_margin, def_y), "DEFINICJA:", fill='#1f77b4', font=font_small)
                 draw.text((left_margin + 100, def_y), definition, fill='#333', font=font_small)
                 
-                example = card.get("example", "")[:60]
+                example = card.get("example", "")[:45]
                 ex_y = def_y + 40
                 draw.text((left_margin, ex_y), "PRZYKŁAD:", fill='#1f77b4', font=font_small)
                 draw.text((left_margin + 100, ex_y), example, fill='#666', font=font_small)
@@ -721,10 +628,17 @@ class MultilingualApp:
     def generate_practice_words(self, language: str, practice_type: str, generation_counter: int = 0):
         """Generuje słowa do ćwiczenia wymowy"""
         try:
-            # Dodaj różnorodność na podstawie licznika
+            # Zwiększ licznik generowania dla większej różnorodności
+            if 'practice_generation_count' not in st.session_state:
+                st.session_state.practice_generation_count = 0
+            st.session_state.practice_generation_count += 1
+            
+            # Dodaj różnorodność na podstawie licznika i losowości
+            import random
+            
             variety_instructions = [
                 "Używaj prostych, podstawowych słów",
-                "Używaj słów średniego poziomu trudności",
+                "Używaj słów średniego poziomu trudności", 
                 "Używaj bardziej zaawansowanych słów",
                 "Używaj słów z różnych dziedzin życia",
                 "Używaj słów związanych z podróżowaniem",
@@ -732,26 +646,72 @@ class MultilingualApp:
                 "Używaj słów związanych z pracą",
                 "Używaj słów związanych z rodziną",
                 "Używaj słów związanych z hobby",
-                "Używaj słów związanych z technologią"
+                "Używaj słów związanych z technologią",
+                "Używaj słów związanych z naturą",
+                "Używaj słów związanych z muzyką",
+                "Używaj słów związanych z sportem",
+                "Używaj słów związanych z edukacją",
+                "Używaj słów związanych z emocjami",
+                "Używaj słów związanych z czasem",
+                "Używaj słów związanych z pogodą",
+                "Używaj słów związanych z domem",
+                "Używaj słów związanych z ubraniami",
+                "Używaj słów związanych z transportem"
             ]
             
-            variety_instruction = variety_instructions[generation_counter % len(variety_instructions)]
+            # Losowo wybierz instrukcję + dodaj licznik
+            random.shuffle(variety_instructions)
+            variety_instruction = variety_instructions[0]
+            
+            # Dodaj losowe elementy do promptów
+            random_elements = [
+                "Dodaj słowa z różnych rejonów geograficznych",
+                "Uwzględnij słowa formalne i nieformalne",
+                "Mieszaj słowa krótkie i długie",
+                "Dodaj słowa z różnych stylów językowych",
+                "Uwzględnij słowa z różnych epok",
+                "Mieszaj słowa proste i złożone",
+                "Dodaj słowa z różnych dialektów",
+                "Uwzględnij słowa z różnych rejestrów"
+            ]
+            
+            random.shuffle(random_elements)
+            additional_instruction = random_elements[0]
             
             prompts = {
-                "Słowa podstawowe": f"Generate 5 very simple, basic words in {language}. Use only simple, everyday words that beginners can easily pronounce. Examples: cat, dog, house, book, car. Format: 1. Word1 2. Word2 3. Word3 4. Word4 5. Word5",
-                "Zwroty codzienne": f"Generate 5 simple daily phrases in {language}. {variety_instruction}. Format: 1. Phrase1 2. Phrase2 3. Phrase3 4. Phrase4 5. Phrase5",
-                "Liczby": f"Generate numbers 1-10 in {language}. Always use actual numbers like: one, two, three, four, five, six, seven, eight, nine, ten. Format: 1. Number1 2. Number2 3. Number3 4. Number4 5. Number5 6. Number6 7. Number7 8. Number8 9. Number9 10. Number10",
-                "Kolory": f"Generate 8 basic colors in {language}. {variety_instruction}. Format: 1. Color1 2. Color2 3. Color3 4. Color4 5. Color5 6. Color6 7. Color7 8. Color8",
-                "Członkowie rodziny": f"Generate 8 family members in {language}. Always use family member words like: mother, father, sister, brother, grandmother, grandfather, aunt, uncle. Format: 1. Member1 2. Member2 3. Member3 4. Member4 5. Member5 6. Member6 7. Member7 8. Member8",
+                "Słowa podstawowe": f"Generate 5 VERY SIMPLE, BASIC words in {language}. Use only beginner-level words that a child would know. Examples: book, tree, car, food, water, door, table, phone, friend, music. {variety_instruction}. {additional_instruction}. Format: 1. Word1 2. Word2 3. Word3 4. Word4 5. Word5",
+                "Zwroty codzienne": f"Generate 5 SIMPLE daily phrases in {language}. Use only basic, everyday expressions. Examples: Good morning, How are you, Thank you, Please help, I'm sorry. {variety_instruction}. {additional_instruction}. Format: 1. Phrase1 2. Phrase2 3. Phrase3 4. Phrase4 5. Phrase5",
+                "Liczby": f"Generate 10 RANDOM and DISTINCT number WORDS between 0 and 100 (inclusive) in {language}. Use ONLY number words (no digits), NO duplicates, random order (do not sort). STRICT RULES: Output ONLY number words; DO NOT output any other categories like family, colors, objects, etc. Examples (English): zero, one, two, ten, twenty, thirty-five, forty-two, fifty, seventy-eight, one hundred. Format: 1. Word1 2. Word2 3. Word3 4. Word4 5. Word5 6. Word6 7. Word7 8. Word8 9. Word9 10. Word10",
+                "Kolory": f"Generate 8 BASIC colors in {language}. Use only simple, common colors. Examples: red, blue, green, yellow, black, white, brown, pink. {variety_instruction}. {additional_instruction}. Format: 1. Color1 2. Color2 3. Color3 4. Color4 5. Color5 6. Color6 7. Color7 8. Color8",
+                "Członkowie rodziny": f"Generate 8 BASIC family members in {language}. Use only simple family words. Examples: mother, father, sister, brother, grandmother, grandfather, aunt, uncle. {variety_instruction}. {additional_instruction}. Format: 1. Member1 2. Member2 3. Member3 4. Member4 5. Member5 6. Member6 7. Member7 8. Member8",
             }
+            
             prompt = prompts.get(practice_type, prompts["Słowa podstawowe"])
+            
+            # Dodaj informację o liczniku generowania
+            prompt += f"\n\nWażne: To jest generowanie #{st.session_state.practice_generation_count}. Używaj różnych słów niż w poprzednich generowaniach."
+            
+            if practice_type == "Liczby":
+                system_content = (
+                    f"Jesteś nauczycielem języka {language} dla początkujących. "
+                    f"GENERUJ WYŁĄCZNIE NAZWY LICZB (słownie) z zakresu 0–100. "
+                    f"Zakazane są inne kategorie (rodzina, kolory, obiekty itp.). "
+                    f"Odpowiadaj TYLKO listą pozycji w podanym formacie, bez wyjaśnień."
+                )
+            else:
+                system_content = (
+                    f"Jesteś nauczycielem języka {language} dla początkujących. Generujesz TYLKO bardzo proste, podstawowe słowa i zwroty - takie jakich uczy się dzieci w wieku 6-10 lat. "
+                    f"{variety_instruction}. {additional_instruction}. Zawsze generuj różne słowa niż w poprzednich generowaniach. NIGDY nie używaj zaawansowanych, trudnych słów."
+                )
+
             messages = [
-                {"role": "system", "content": f"Jesteś nauczycielem języka {language}. Generujesz słowa do ćwiczenia wymowy. {variety_instruction}."},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": prompt},
             ]
+            
             result = self.openai_handler.make_request(messages)
             if result:
-                st.success("✅ Słowa do ćwiczeń wygenerowane!")
+                st.success(f"✅ Słowa do ćwiczeń wygenerowane! (Generowanie #{st.session_state.practice_generation_count})")
                 # Zapamiętaj wynik
                 st.session_state.practice_words_result = result
                 st.session_state.practice_words_display_type = practice_type
@@ -764,6 +724,14 @@ class MultilingualApp:
     def analyze_pronunciation(self, language: str, recorded_text: str):
         """Analizuje wymowę na podstawie nagranego tekstu - szybsza wersja"""
         try:
+            # Sprawdź czy openai_handler jest dostępny
+            if not hasattr(self, 'openai_handler') or not self.openai_handler:
+                return None
+            
+            # Sprawdź czy tekst nie jest pusty
+            if not recorded_text or not recorded_text.strip():
+                return None
+            
             # Krótszy prompt dla szybszej analizy
             prompt = f"""
             Krótko przeanalizuj wymowę w języku {language}.
@@ -783,7 +751,6 @@ class MultilingualApp:
             return result
             
         except Exception as e:
-            st.error(f"❌ Błąd podczas analizy wymowy: {str(e)}")
             return None
 
     def render_translation_section(self):
@@ -812,8 +779,14 @@ class MultilingualApp:
                 help="Wybierz język na który chcesz przetłumaczyć tekst"
             )
             
-            # Pod tym - text area
-            text = st.text_area("Wpisz tekst do przetłumaczenia", key="translation_text", height=120, value=st.session_state.get('recorded_audio_text', ''))
+            # Pod tym - text area spięty z session_state
+            st.session_state.translation_input_text = st.text_area(
+                "Wpisz tekst do przetłumaczenia:",
+                value=st.session_state.translation_input_text,
+                height=120,
+                key="translation_input_text_area",
+                placeholder="Nagraj audio lub wpisz tekst do przetłumaczenia..."
+            )
             
             # Pod spodem - nagrywanie + opcje poprawy
             col1, col2 = st.columns([1, 1])
@@ -827,160 +800,119 @@ class MultilingualApp:
                 # Nagrywanie audio
                 st.markdown("### 🎙️ Nagrywanie")
                 
-            try:
-                from audiorecorder import audiorecorder
-                from pydub import AudioSegment  # Upewnij się, że pydub jest zaimportowany
+                try:
+                    from audiorecorder import audiorecorder
+                    from pydub import AudioSegment  # Upewnij się, że pydub jest zaimportowany
 
-                # Nagrywanie audio - jeden przycisk
-                audio_data = audiorecorder(
-                    "🔴 Kliknij aby rozpocząć nagrywanie",
-                    "⏹️ Kliknij aby zatrzymać",
-                    key="pronunciation_voice_recorder"
-                )
+                    # Nagrywanie audio - jeden przycisk
+                    audio_data = audiorecorder(
+                        "🔴 Kliknij aby rozpocząć nagrywanie",
+                        "⏹️ Kliknij aby zatrzymać",
+                        key="translation_voice_recorder"
+                    )
 
-                if audio_data is not None and len(audio_data) > 0:
-                    st.success("✅ **Nagranie zakończone!**")
-                    
-                    # Konwersja AudioSegment na dane binarne (bytes)
-                    try:
-                        # Sprawdź format audio przed konwersją
-                        st.info(f"🔍 Format audio: {type(audio_data)}")
-                        if hasattr(audio_data, 'frame_rate'):
-                            st.info(f"🔍 Sample rate: {audio_data.frame_rate} Hz")
-                        
-                        # Eksportuj do WAV (sekcja tłumaczeń - UNIKALNY)
-                        audio_bytes_io = io.BytesIO()
-                        
-                        # Sprawdź typ audio_data przed eksportem
-                        st.info(f"🔍 Typ audio_data: {type(audio_data)}")
-                        st.info(f"🔍 Długość audio_data: {len(audio_data)}")
-                        
-                        # Dodatkowe sprawdzenie obiektu audio
-                        if hasattr(audio_data, 'frame_rate'):
-                            st.info(f"🔍 Sample rate: {audio_data.frame_rate} Hz")
-                        if hasattr(audio_data, 'channels'):
-                            st.info(f"🔍 Kanały: {audio_data.channels}")
-                        if hasattr(audio_data, 'duration_seconds'):
-                            st.info(f"🔍 Czas trwania: {audio_data.duration_seconds:.2f} s")
-                        
-                        # Spróbuj eksport do różnych formatów
+                    if audio_data is not None and len(audio_data) > 0:
+                        # Nie czyść pola tekstowego użytkownika przy nowym nagraniu
+                        st.success("✅ **Nagranie zakończone!**")
+                        # Konwersja AudioSegment na dane binarne (bytes)
                         try:
-                            # Najpierw spróbuj WAV
-                            st.info("🔄 Eksportuję do WAV...")
-                            audio_data.export(audio_bytes_io, format="wav")
-                            audio_bytes_io.seek(0)
-                            audio_bytes = audio_bytes_io.getvalue()
+                            import tempfile
+                            import os
+                            # Utwórz plik tymczasowy WAV (jak w ćwiczeniu wymowy)
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                                audio_data.export(temp_file, format="wav")
+                                temp_file_path = temp_file.name
+                            # Wyświetl audio z pliku tymczasowego
+                            st.audio(temp_file_path, format="audio/wav")
+                            st.success("✅ Audio przygotowane do transkrypcji")
                             
-                            st.info(f"🔍 Rozmiar po eksporcie WAV: {len(audio_bytes)} bajtów")
-                            
-                            if len(audio_bytes) >= 4:
-                                header = audio_bytes[:4]
-                                if header.startswith(b'RIFF'):
-                                    st.success("✅ Eksport WAV udany")
-                                    # Sprawdź czy plik ma minimalny rozmiar WAV
-                                    if len(audio_bytes) < 44:
-                                        st.warning("⚠️ Plik WAV jest za mały - może być uszkodzony")
-                                else:
-                                    st.warning(f"⚠️ Eksport WAV nieudany, nagłówek: {header.hex()}")
-                                    # Spróbuj MP3
-                                    st.info("🔄 Próbuję MP3...")
-                                    audio_bytes_io.seek(0)
-                                    audio_bytes_io.truncate(0)
-                                    audio_data.export(audio_bytes_io, format="mp3")
-                                    audio_bytes_io.seek(0)
-                                    audio_bytes = audio_bytes_io.getvalue()
-                                    st.info("🔄 Przełączono na format MP3")
+                            # Zapisz ścieżkę do pliku tymczasowego w session state
+                            st.session_state.temp_translation_audio_file = temp_file_path
+                            # Przygotuj bytes dla transkrypcji
+                            with open(temp_file_path, 'rb') as audio_file:
+                                audio_bytes = audio_file.read()
                             
                         except Exception as export_error:
-                            st.error(f"❌ Błąd eksportu: {str(export_error)}")
-                            st.error(f"🔍 Typ błędu eksportu: {type(export_error).__name__}")
-                            # Spróbuj MP3 jako fallback
-                            try:
-                                st.info("🔄 Próbuję MP3 jako fallback...")
-                                audio_bytes_io.seek(0)
-                                audio_bytes_io.truncate(0)
-                                audio_data.export(audio_bytes_io, format="mp3")
-                                audio_bytes_io.seek(0)
-                                audio_bytes = audio_bytes_io.getvalue()
-                                st.info("🔄 Użyto MP3 jako fallback")
-                            except Exception as mp3_error:
-                                st.error(f"❌ Błąd eksportu MP3: {str(mp3_error)}")
-                                return
-                        
-                        if not audio_bytes:
-                            st.error("❌ Błąd konwersji audio")
+                            st.error(f"❌ Błąd eksportu audio: {str(export_error)}")
+                            st.error(f"🔍 Typ błędu: {type(export_error).__name__}")
                             return
-                        
-                        st.success(f"✅ Audio skonwertowane: {len(audio_bytes)} bajtów")
-                        
-                        # Debug: sprawdź nagłówek pliku
-                        if len(audio_bytes) >= 4:
-                            header = audio_bytes[:4]
-                            st.info(f"🔍 Nagłówek pliku: {header.hex()}")
-                            if header.startswith(b'RIFF'):
-                                st.info("✅ Format: WAV")
-                            elif header.startswith(b'\xff\xfb') or header.startswith(b'ID3'):
-                                st.info("✅ Format: MP3")
-                            else:
-                                st.warning(f"⚠️ Nieznany format: {header.hex()}")
-                        
-                        # Wyświetl audio po konwersji
-                        st.audio(audio_bytes, format="audio/wav")
-                        
-                    except Exception as export_error:
-                        st.error(f"❌ Błąd eksportu audio: {str(export_error)}")
-                        st.error(f"🔍 Typ błędu: {type(export_error).__name__}")
+                        # Przycisk do transkrypcji audio
+                        if st.button("🎧 Transkrybuj nagranie audio", type="secondary", key="transcribe_btn"):
+                            with st.spinner("🎧 Transkrybuję nagranie..."):
+                                try:
+                                    transcribed_text = self.openai_handler.transcribe_audio(audio_bytes)
+                                    if transcribed_text:
+                                        st.info(f"📝 **Rozpoznany tekst:** {transcribed_text}")
+                                        # Aktualizuj session_state i natychmiast pokaż w text area
+                                        st.session_state.translation_input_text = transcribed_text
+                                        st.session_state.transcription_count = st.session_state.get('transcription_count', 0) + 1
+                                        
+                                        # Wyczyść plik tymczasowy
+                                        try:
+                                            if 'temp_translation_audio_file' in st.session_state:
+                                                os.unlink(st.session_state.temp_translation_audio_file)
+                                                del st.session_state.temp_translation_audio_file
+                                        except:
+                                            pass
+                                        
+                                        st.success("✅ **Tekst automatycznie wypełniony w polu tłumaczenia!**")
+                                        
+                                        # Odśwież stronę aby zaktualizować text_area
+                                        st.rerun()
+                                        
+                                    else:
+                                        st.error("❌ Nie udało się przetworzyć audio na tekst.")
+                                except Exception as e:
+                                    st.error(f"❌ Błąd podczas transkrypcji: {str(e)}")
+                                    
+                                    # Wyczyść plik tymczasowy w przypadku błędu
+                                    try:
+                                        if 'temp_translation_audio_file' in st.session_state:
+                                            os.unlink(st.session_state.temp_translation_audio_file)
+                                            del st.session_state.temp_translation_audio_file
+                                    except:
+                                        pass
+                    else:
+                        st.warning("⚠️ Brak danych audio do przetworzenia.")
+                except ImportError:
+                    st.error("❌ Brak biblioteki audiorecorder. Zainstaluj: pip install audiorecorder")
+                except Exception as e:
+                    st.error(f"❌ Błąd podczas nagrywania: {str(e)}")
+                
+            # Oddzielny kontener dla sekcji tłumaczeń
+            translation_container = st.container()
+            
+            # Przyciski tłumaczeń zawsze widoczne
+            with translation_container:
+                if st.button("Przetłumacz", type="primary", use_container_width=True, key="translate_btn"):
+                    # Użyj aktualnej wartości z text_area spiętej z session_state
+                    text_to_translate = st.session_state.translation_input_text
+                    
+                    if not text_to_translate or not text_to_translate.strip():
+                        st.warning("Wpisz tekst do przetłumaczenia w pole tekstowe.")
                         return
+                    
+                    st.session_state.request_count += 1
+                    
+                    with st.spinner("Tłumaczę..."):
+                        translation_result = self.translation_manager.translate_text(text_to_translate, target_lang, correct_errors, improve_style)
+                    
+                    if translation_result:
+                        st.success("✅ Tłumaczenie gotowe!")
+                        # Zapisz wynik do session_state i pokaż poniżej w osobnym polu tylko do odczytu
+                        st.session_state.translated_text = translation_result["translation"]
+                        # Wyświetl wynik w ładnej ramce
+                        st.markdown(f"""
+                        <div class="translation-box">
+                            <h4 style="color: #1f77b4; margin-top: 0;">🌍 Tłumaczenie ({target_lang}):</h4>
+                            {translation_result["translation"]}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
 
-                    # Transkrypcja audio
-                    if st.button("🎧 Transkrybuj nagranie", key="pronunciation_transcribe", type="primary", use_container_width=True):
-                        with st.spinner("🎧 Transkrybuję nagranie przez OpenAI Whisper..."):
-                            try:
-                                transcribed_text = self.openai_handler.transcribe_audio(audio_bytes)
-                                if transcribed_text:
-                                    st.success("🎧 **Transkrypcja gotowa!**")
-                                    st.info(f"📝 **Rozpoznany tekst:** {transcribed_text}")
-                                    st.session_state.recorded_audio_text = transcribed_text
-                                    st.rerun()  # Odśwież stronę, żeby tekst trafił do text area
-                                else:
-                                    st.error("❌ Nie udało się przetworzyć audio na tekst.")
-                            except Exception as e:
-                                st.error(f"❌ Błąd podczas transkrypcji: {str(e)}")
-                else:
-                    st.warning("⚠️ Brak danych audio do przetworzenia.")
-            except ImportError:
-                st.error("❌ Brak biblioteki audiorecorder. Zainstaluj: pip install audiorecorder")
-            except Exception as e:
-                st.error(f"❌ Błąd podczas nagrywania: {str(e)}")
-                
-            if st.button("Przetłumacz", type="primary", use_container_width=True, key="translate_btn"):
-                # Użyj tylko text area jako głównego wejścia
-                if not text or not text.strip():
-                    st.warning("Wpisz tekst do przetłumaczenia w pole tekstowe.")
-                    return
-                
-                text_to_translate = text
-                
-                st.session_state.request_count += 1
-                
-                with st.spinner("Tłumaczę..."):
-                    translation_result = self.translation_manager.translate_text(text_to_translate, target_lang, correct_errors, improve_style)
-                
-                if translation_result:
-                    st.success("✅ Tłumaczenie gotowe!")
-                    # Wyświetl wynik w ładnej ramce
-                    st.markdown(f"""
-                    <div class="translation-box">
-                        <h4 style="color: #1f77b4; margin-top: 0;">🌍 Tłumaczenie ({target_lang}):</h4>
-                        {translation_result["translation"]}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # TODO: Dodać generowanie audio w przyszłości
-                    pass
-                    
-                else:
-                    st.error("❌ Nie udało się przetłumaczyć tekstu.")
+                        
+                    else:
+                        st.error("❌ Nie udało się przetłumaczyć tekstu.")
                 
 
 
@@ -1137,6 +1069,11 @@ class MultilingualApp:
             if st.session_state.get('practice_words_result'):
                 st.markdown("**📝 Słowa do ćwiczenia:**")
                 st.write(st.session_state.practice_words_result)
+            
+            # Wyświetl transkrypcję wymowy
+            if st.session_state.get('practice_text'):
+                st.markdown("**🎤 Twoja wymowa (transkrypcja):**")
+                st.text_area("Transkrypcja wymowy", value=st.session_state.practice_text, height=100, key="pronunciation_text", disabled=True)
         
         with col2:
             # Nagrywanie wymowy
@@ -1149,104 +1086,57 @@ class MultilingualApp:
                     key="pronunciation_voice_recorder"
                 )
                 
+
+                
                 if audio_data is not None and len(audio_data) > 0:
+                    # Resetuj stare komunikaty i tekst przy nowym nagrywaniu
+                    if 'last_pronunciation_analysis' in st.session_state:
+                        del st.session_state.last_pronunciation_analysis
+                    
                     st.success("✅ **Nagranie zakończone!**")
                     
-                    # Konwersja AudioSegment na bytes w formacie WAV
+                    # Użyj bezpośrednio pliku tymczasowego - to już działa
                     try:
-                        # Sprawdź format audio przed konwersją
-                        st.info(f"🔍 Format audio: {type(audio_data)}")
-                        if hasattr(audio_data, 'frame_rate'):
-                            st.info(f"🔍 Sample rate: {audio_data.frame_rate} Hz")
+                        import tempfile
+                        import os
                         
-                        # Eksportuj do WAV (sekcja wymowy)
-                        audio_bytes_io = io.BytesIO()
+                        # Utwórz plik tymczasowy
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                            audio_data.export(temp_file, format="wav")
+                            temp_file_path = temp_file.name
                         
-                        # Sprawdź typ audio_data przed eksportem
-                        st.info(f"🔍 Typ audio_data: {type(audio_data)}")
-                        st.info(f"🔍 Długość audio_data: {len(audio_data)}")
+                        # Wyświetl audio
+                        st.audio(temp_file_path, format="audio/wav")
+                        st.success("✅ Audio przygotowane do transkrypcji")
                         
-                        # Spróbuj eksport do różnych formatów
-                        try:
-                            # Najpierw spróbuj WAV
-                            audio_data.export(audio_bytes_io, format="wav")
-                            audio_bytes_io.seek(0)
-                            audio_bytes = audio_bytes_io.getvalue()
-                            
-                            if len(audio_bytes) >= 4:
-                                header = audio_bytes[:4]
-                                if header.startswith(b'RIFF'):
-                                    st.success("✅ Eksport WAV udany")
-                                else:
-                                    st.warning(f"⚠️ Eksport WAV nieudany, nagłówek: {header.hex()}")
-                                    # Spróbuj MP3
-                                    audio_bytes_io.seek(0)
-                                    audio_bytes_io.truncate(0)
-                                    audio_data.export(audio_bytes_io, format="mp3")
-                                    audio_bytes_io.seek(0)
-                                    audio_bytes = audio_bytes_io.getvalue()
-                                    st.info("🔄 Przełączono na format MP3")
-                            
-                        except Exception as export_error:
-                            st.error(f"❌ Błąd eksportu: {str(export_error)}")
-                            # Spróbuj MP3 jako fallback
-                            try:
-                                audio_bytes_io.seek(0)
-                                audio_bytes_io.truncate(0)
-                                audio_data.export(audio_bytes_io, format="mp3")
-                                audio_bytes_io.seek(0)
-                                audio_bytes = audio_bytes_io.getvalue()
-                                st.info("🔄 Użyto MP3 jako fallback")
-                            except Exception as mp3_error:
-                                st.error(f"❌ Błąd eksportu MP3: {str(mp3_error)}")
-                                return
-                        
-                        if not audio_bytes:
-                            st.error("❌ Błąd konwersji audio")
-                            return
-                        
-                        st.success(f"✅ Audio skonwertowane: {len(audio_bytes)} bajtów")
-                        
-                        # Debug: sprawdź nagłówek pliku
-                        if len(audio_bytes) >= 4:
-                            header = audio_bytes[:4]
-                            st.info(f"🔍 Nagłówek pliku: {header.hex()}")
-                            if header.startswith(b'RIFF'):
-                                st.info("✅ Format: WAV")
-                            elif header.startswith(b'\xff\xfb') or header.startswith(b'ID3'):
-                                st.info("✅ Format: MP3")
-                            else:
-                                st.warning(f"⚠️ Nieznany format: {header.hex()}")
-                        
-                        # Wyświetl audio po konwersji
-                        st.audio(audio_bytes, format="audio/wav")
+                        # Zapisz ścieżkę do pliku tymczasowego w session state
+                        st.session_state.temp_audio_file = temp_file_path
                         
                     except Exception as export_error:
-                        st.error(f"❌ Błąd eksportu audio: {str(export_error)}")
+                        st.error(f"❌ Błąd przygotowania audio: {str(export_error)}")
                         st.error(f"🔍 Typ błędu: {type(export_error).__name__}")
-                        return
+                        # Nie używamy return - pozwalamy kodowi działać dalej
                     
                     # Transkrypcja audio
                     if st.button("🎧 Transkrybuj nagranie", key="pronunciation_transcribe", type="primary", use_container_width=True):
                         with st.spinner("🎧 Transkrybuję nagranie przez OpenAI Whisper..."):
                             try:
-                                # audio_bytes jest już dostępne z poprzedniej konwersji
-                                if not audio_bytes:
-                                    st.error("❌ Brak danych audio do transkrypcji")
+                                # Użyj pliku tymczasowego z session state
+                                temp_file_path = st.session_state.get('temp_audio_file')
+                                if not temp_file_path or not os.path.exists(temp_file_path):
+                                    st.error("❌ Brak pliku audio do transkrypcji")
                                     return
                                 
-                                # Transkrypcja audio
-                                transcribed_text = self.openai_handler.transcribe_audio(audio_bytes)
+                                # Transkrypcja audio z pliku tymczasowego
+                                with open(temp_file_path, 'rb') as audio_file:
+                                    transcribed_text = self.openai_handler.transcribe_audio(audio_file.read())
                                 
                                 if transcribed_text:
-                                    st.session_state.practice_text = transcribed_text
-                                    st.session_state.recorded_audio_text = transcribed_text
-                                    st.session_state.practice_mic_version += 1
+
                                     st.success("🎧 **Transkrypcja gotowa!**")
                                     st.info(f"📝 **Rozpoznany tekst:** {transcribed_text}")
                                     
                                     # Automatyczna analiza wymowy po nagraniu
-                                    st.markdown("**🎯 Analiza wymowy z nagrania**")
                                     analysis_result = self.analyze_pronunciation(language, transcribed_text)
                                     if analysis_result:
                                         st.session_state.last_pronunciation_analysis = analysis_result
@@ -1256,50 +1146,41 @@ class MultilingualApp:
                                             <div style="font-size: 16px; line-height: 1.6; margin: 0; white-space: pre-line;">{analysis_result}</div>
                                         </div>
                                         """, unsafe_allow_html=True)
+                                    else:
+                                        st.warning("⚠️ Nie udało się przeanalizować wymowy.")
                                     
-                                    st.rerun()  # Odśwież stronę, żeby tekst trafił do text area
+                                    # Wyczyść plik tymczasowy
+                                    try:
+                                        if 'temp_audio_file' in st.session_state:
+                                            os.unlink(st.session_state.temp_audio_file)
+                                            del st.session_state.temp_audio_file
+                                    except:
+                                        pass
+                                    
+
                                 else:
                                     st.error("❌ Nie udało się przetworzyć audio na tekst.")
                                     
                             except Exception as e:
                                 st.error(f"❌ Błąd podczas transkrypcji: {str(e)}")
-                                st.error(f"🔍 Typ błędu: {type(e).__name__}")
+                                
+                                # Wyczyść plik tymczasowy w przypadku błędu
+                                try:
+                                    if 'temp_audio_file' in st.session_state:
+                                        os.unlink(st.session_state.temp_audio_file)
+                                        del st.session_state.temp_audio_file
+                                except:
+                                    pass
                 
             except ImportError:
                 st.error("❌ Brak biblioteki audiorecorder. Zainstaluj: pip install audiorecorder")
+                st.info("💡 Alternatywnie możesz użyć: pip install streamlit-audiorecorder")
             except Exception as e:
                 st.error(f"❌ Błąd podczas nagrywania: {str(e)}")
+                st.error(f"🔍 Typ błędu: {type(e).__name__}")
+                st.info("💡 Sprawdź czy mikrofon jest dostępny i ma uprawnienia")
         
-        # Analiza wymowy dla tekstu z pola
-        st.markdown("---")
-        st.markdown("### 📝 Analiza wymowy dla tekstu")
-        
-        practice_text = st.text_area(
-            "Wpisz tekst do analizy wymowy:",
-            value=st.session_state.get('practice_text', ''),
-            height=100,
-            key="practice_text_input"
-        )
-        
-        if st.button("🎯 Analizuj wymowę", type="primary", use_container_width=True):
-            if not practice_text.strip():
-                st.warning("Wpisz tekst do analizy wymowy.")
-                return
-            
-            with st.spinner("Analizuję wymowę..."):
-                analysis_result = self.analyze_pronunciation(language, practice_text)
-            
-            if analysis_result:
-                st.session_state.last_pronunciation_analysis = analysis_result
-                st.success("✅ Analiza wymowy gotowa!")
-                st.markdown(f"""
-                <div style="background-color: #e8f4fd; padding: 20px; border-radius: 10px; border-left: 5px solid #1f77b4; margin: 20px 0;">
-                    <h4 style="margin: 0 0 15px 0; color: #1f77b4;">🎤 Analiza wymowy:</h4>
-                    <div style="font-size: 16px; line-height: 1.6; margin: 0; white-space: pre-line;">{analysis_result}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.error("❌ Nie udało się przeanalizować wymowy.")
+
 
 
 
@@ -1363,14 +1244,7 @@ class MultilingualApp:
         self.render_flashcard_section()
         st.markdown("---")
         
-        # 📚 Wskazówki gramatyczne
-        self.render_grammar_tips_section()
-        st.markdown("---")
-        
-        # 🎤 ĆWICZENIE WYMOWY - GŁÓWNA SEKCJA
-        st.header("🎤 Ćwiczenie wymowy")
-        st.markdown("---")
-        
+        # 🎤 ĆWICZENIE WYMOWY
         self.render_pronunciation_section()
         
         # Renderuj stopkę
@@ -1401,7 +1275,6 @@ class MultilingualApp:
         st.sidebar.markdown("🌍 tłumaczenia")
         st.sidebar.markdown("📖 fiszki")
         st.sidebar.markdown("📚 wyjaśnienia")
-        st.sidebar.markdown("📚 wskazówki gramatyczne")
         st.sidebar.markdown("🎤 wymowa")
         st.sidebar.markdown("🎙️ nagrywanie audio")
         
@@ -1412,61 +1285,7 @@ class MultilingualApp:
             st.session_state.api_key = ""
             st.rerun()
     
-    def render_grammar_tips_section(self):
-        """Sekcja wskazówek gramatycznych"""
-        st.header("📚 Wskazówki gramatyczne")
-        st.markdown("---")
-        
-        # Ładna ramka dla wskazówek gramatycznych
-        with st.container():
-            st.markdown("""
-            <style>
-            .grammar-box {
-                background-color: #f0f2f6;
-                border: 2px solid #1f77b4;
-                border-radius: 10px;
-                padding: 20px;
-                margin: 10px 0;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            grammar_text = st.text_area("Wpisz tekst do analizy gramatycznej:", key="grammar_text", height=100)
-            
-            col1, col2 = st.columns([1, 1])
-            
-            with col1:
-                grammar_language = st.selectbox(
-                    "Język tekstu:",
-                    ["Polish", "English", "German", "French", "Spanish", "Italian"],
-                    index=0,
-                    key="grammar_language"
-                )
-            
-            with col2:
-                if st.button("📚 Generuj wskazówki gramatyczne", type="primary", use_container_width=True):
-                    if not grammar_text.strip():
-                        st.warning("Wpisz tekst do analizy gramatycznej.")
-                        return
-                    
-                    st.session_state.request_count += 1
-                    
-                    with st.spinner("Generuję wskazówki gramatyczne..."):
-                        grammar_result = self.flashcard_manager.generate_grammar_tips(grammar_text, grammar_language)
-                    
-                    if grammar_result and "tips" in grammar_result:
-                        st.success("✅ Wskazówki gramatyczne gotowe!")
-                        
-                        for i, tip in enumerate(grammar_result["tips"], 1):
-                            with st.expander(f"📖 Wskazówka {i}: {tip.get('rule', 'N/A')}"):
-                                st.markdown(f"**Reguła:** {tip.get('rule', 'N/A')}")
-                                st.markdown(f"**Wyjaśnienie:** {tip.get('explanation', 'N/A')}")
-                                st.markdown("**Przykłady:**")
-                                for example in tip.get('examples', []):
-                                    st.markdown(f"- {example}")
-                    else:
-                        st.error("❌ Nie udało się wygenerować wskazówek gramatycznych.")
+
     
     def render_footer(self):
         """Stopka aplikacji"""
