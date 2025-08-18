@@ -5,5 +5,4 @@ AudioRecorder>=0.1
 python-dotenv>=1.1.1
 pydantic>=2.11.7
 pydub>=0.25.1
-streamlit-audiorecorder>=0.0.6
 
