@@ -1,7 +1,7 @@
 streamlit>=1.48.0
 openai>=1.99.6
 tiktoken>=0.11.0
-audiorecorder>=0.1
+streamlit-audiorecorder>=0.0.6
 python-dotenv>=1.1.1
 pydantic>=2.11.7
 pydub>=0.25.1
